@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from sam2.modeling.sam2_utils import DropPath, get_clones, LayerNorm2d, LayerNorm2dNHWC
+from sam2.modeling.sam2_utils import DropPath, get_clones, LayerNorm2d, LayerNorm2dWithNN
 
 
 class MaskDownSampler(nn.Module):
@@ -48,7 +48,7 @@ class MaskDownSampler(nn.Module):
                     padding=padding,
                 )
             )
-            self.encoder.append(LayerNorm2dNHWC(mask_out_chans))
+            self.encoder.append(LayerNorm2dWithNN(mask_out_chans))
             self.encoder.append(activation())
             mask_in_chans = mask_out_chans
 
@@ -88,7 +88,7 @@ class CXBlock(nn.Module):
             padding=padding,
             groups=dim if use_dwconv else 1,
         )  # depthwise conv
-        self.norm = LayerNorm2dNHWC(dim, eps=1e-6)
+        self.norm = LayerNorm2dWithNN(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(
             dim, 4 * dim
         )  # pointwise/1x1 convs, implemented with linear layers

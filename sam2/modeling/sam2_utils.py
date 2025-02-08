@@ -152,26 +152,31 @@ class LayerNorm2d(nn.Module):
         x = self.weight[:, None, None] * x + self.bias[:, None, None]
         return x
 
-class LayerNorm2dNHWC(nn.Module):
+# Use official nn.layernorm
+# Need to convert original weight to nn.layernorm weight
+class LayerNorm2dWithNN(nn.Module):
     def __init__(self, num_channels: int, eps: float = 1e-6) -> None:
         super().__init__()
+        self.num_channels = num_channels
+        # Set initial weights and biases similar to the original implementation
         self.weight = nn.Parameter(torch.ones(num_channels))
         self.bias = nn.Parameter(torch.zeros(num_channels))
         self.eps = eps
+        self.load_weight = False
 
-    # for AIEDGETORCH_LAYOUT_OPTIMIZE_PARTITIONER=MINCUT
+    def load_weights_from_old_model(self):
+        self.layer_norm = nn.LayerNorm(normalized_shape=self.num_channels, eps=self.eps, elementwise_affine=True)
+        self.layer_norm.weight.data =  self.weight
+        self.layer_norm.bias.data = self.bias
+        self.load_weight = True
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-       # Turn into `NHWC` if required or any other specific format
-       x = x.permute(0, 2, 3, 1)  # Optional based on requirements
-       # Operations here depend on whether Channel is leading or at the end
-       u = x.mean(3, keepdim=True)
-       s = (x - u).pow(2).mean(3, keepdim=True)
-       s = s + self.eps
-       x = (x - u) / torch.sqrt(s)
-       x = self.weight * x + self.bias
-       # Revert back `NCHW`
-       x = x.permute(0, 3, 1, 2)  # If you converted earlier
-       return x
+        assert(self.load_weight)
+        orig_shape = x.shape
+        x = x.view(orig_shape[0], orig_shape[1], -1).transpose(1, 2)  # (N, C, H*W) -> (N, H*W, C)
+        x = self.layer_norm(x)
+        x = x.transpose(1, 2).view(orig_shape)  # (N, H*W, C) -> (N, C, H, W)
+        return x
 
 def sample_box_points(
     masks: torch.Tensor,

@@ -1584,7 +1584,7 @@ class SAM2Base(torch.nn.Module):
                     from ai_edge_torch.quantize import quant_config
                     from torch.ao.quantization import quantize_pt2e
 
-                    if False:
+                    if True:
                         quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
                             pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
                         )

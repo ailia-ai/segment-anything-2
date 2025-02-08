@@ -164,6 +164,10 @@ def _load_checkpoint(model, ckpt_path):
     if ckpt_path is not None:
         sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
         missing_keys, unexpected_keys = model.load_state_dict(sd)
+        for name, module in model.named_modules():
+            from sam2.modeling.sam2_utils import LayerNorm2dWithNN
+            if isinstance(module, LayerNorm2dWithNN):
+                module.load_weights_from_old_model()
         if missing_keys:
             logging.error(missing_keys)
             raise RuntimeError()
