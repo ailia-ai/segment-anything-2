@@ -848,126 +848,22 @@ class SAM2ImagePredictor:
                     from torch.ao.quantization import quantize_pt2e
 
                     # quantize transpose_conv
-                    from ai_edge_torch.quantize.pt2e_quantizer_utils import QuantizationConfig, register_annotator, get_input_act_qspec, get_weight_qspec, get_bias_qspec, _is_annotated, get_output_act_qspec, _mark_nodes_as_annotated
-                    from typing import Callable, Dict, List, Optional
+                    from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_weight_qspec, get_bias_qspec, get_output_act_qspec
                     from torch.ao.quantization.quantizer import QuantizationAnnotation
-                    from torch.fx import Node
-                    from ai_edge_torch.quantize.pt2e_quantizer_utils import propagate_annotation
-                    from ai_edge_torch.quantize.pt2e_quantizer_utils import OperatorPatternType
-                    import torch.nn.functional as F
-                    import copy
-
-                    #@register_annotator("transpose_conv")
-                    def _annotate_transpose_conv(
-                        gm: torch.fx.GraphModule,
-                        quantization_config: Optional[QuantizationConfig],
-                        filter_fn: Optional[Callable[[Node], bool]] = None,
-                    ) -> Optional[List[List[Node]]]:
-                        annotated_partitions = []
-                        for n in gm.graph.nodes:
-                            print(n.target)
-                            if n.op != "call_function" or n.target not in [
-                                torch.ops.aten.conv_transpose2d, torch.ops.aten.conv_transpose2d.input,
-                            ]:
-                                continue
-                            print("# transpose_conv")
-                            conv_node = n
-                            print(conv_node.args)
-
-                            input_qspec_map = {}
-                            input_act = conv_node.args[0]
-                            assert isinstance(input_act, Node)
-                            input_qspec_map[input_act] = get_input_act_qspec(quantization_config)
-                            
-                            weight = conv_node.args[1]
-                            assert isinstance(weight, Node)
-                            input_qspec_map[weight] = get_weight_qspec(quantization_config)
-
-                            bias = conv_node.args[2]
-                            assert isinstance(bias, Node)
-                            input_qspec_map[bias] = get_bias_qspec(quantization_config)
-                             
-                            # adding weight node to the partition as well
-                            partition = [conv_node, conv_node.args[1], conv_node.args[2]]
-
-                            if _is_annotated(partition):
-                                continue
-
-                            if filter_fn and any(not filter_fn(n) for n in partition):
-                                continue
-
-                            #bias = conv_node.args[2] if len(conv_node.args) > 2 else None
-                            #if isinstance(bias, Node):
-                            #    print(" bias enable")
-                            #    input_qspec_map[bias] = get_bias_qspec(quantization_config)
-                            #    partition.append(bias)
-
-                            #shape = conv_node.args[3] if len(conv_node.args) > 3 else None
-                            #if isinstance(shape, Node):
-                            #    print(" shape enable")
-                            #    input_qspec_map[shape] = get_bias_qspec(quantization_config)
-                            #    partition.append(shape)
-
-                            #if _is_annotated(partition):
-                            #    print(" not annotated")
-                            #    continue
-
-                            #if filter_fn and any(not filter_fn(n) for n in partition):
-                            #    print(" not in filter")
-                            #    continue
-
-                            #print(input_qspec_map)
-                            #print(get_output_act_qspec(quantization_config))
-
-
-                            conv_node.meta["quantization_annotation"] = QuantizationAnnotation(
-                                input_qspec_map=input_qspec_map,
-                                output_qspec=get_output_act_qspec(quantization_config),
-                                _annotated=True,
-                            )
-                            _mark_nodes_as_annotated(partition)
-                            annotated_partitions.append(partition)
-                        return annotated_partitions
 
                     quantization_config = pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=False)
 
                     class PT2EQuantizer2(pt2e_quantizer.PT2EQuantizer):
-                        # static quantization ops (both PTQ and QAT)
-                        STATIC_OPS = [
-                            "linear",
-                            "addmm",
-                            "conv_relu",
-                            "conv",
-                            "adaptive_avg_pool2d",
-                            "gru_io_only",
-                            "max_pool2d",
-                            "add_relu",
-                            "add",
-                            "mul_relu",
-                            "mul",
-                            "cat",
-                            "fixed_qparams",
-                            #"transpose_conv", # added
-                        ]
-
                         def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                             super().annotate(model)
-                            
-                            #model = self._annotate_for_static_quantization_config(model)
 
                             for n in model.graph.nodes:
-                                print(n.target, n.meta)
-                                
                                 if n.target in [torch.ops.aten.conv_transpose2d.input]:
-                                    #print(n.target, n.meta)
-
-                                    # StableHLOの内部でweightがtransposeされるためにqdqの変換がうまくいかず、完全にint8にはできない
-                                    # ただ、layernormの出力のquantizeでパーティションを分割して、dq -> transposeconv -> qとするために、
-                                    # 入力側にはint8の制約をかける
-
                                     input_qspec_map = {}
 
                                     input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+
+                                    # weightにも制約をかけるとうまくint8に変換できなくなるため、inputにだけ制約をかける
                                     #input_qspec_map[n.args[1]] = get_weight_qspec(quantization_config)
                                     #input_qspec_map[n.args[2]] = get_bias_qspec(quantization_config)
 
@@ -977,46 +873,16 @@ class SAM2ImagePredictor:
                                         _annotated=True,
                                     )
 
-                                    print(n.target, n.meta)
-
-                                if False:#n.target in [torch.ops.aten.linear.default]:
-                                    #print(n.target, n.meta)
-
-                                    input_qspec_map = {}
-
-                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
-                                    input_qspec_map[n.args[1]] = get_input_act_qspec(quantization_config)
-
-                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
-                                        input_qspec_map=input_qspec_map,
-                                        output_qspec=get_output_act_qspec(quantization_config),
-                                        _annotated=True,
-                                    )
-
-                                    print(n.target, n.meta)
-
-                                if False:#n.target in [torch.ops.aten.gelu.default]:
-                                    #print(n.target, n.meta)
-
-                                    input_qspec_map = {}
-
-                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
-
-                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
-                                        input_qspec_map=input_qspec_map,
-                                        output_qspec=get_output_act_qspec(quantization_config),
-                                        _annotated=True,
-                                    )
-
-                                    print(n.target, n.meta)
-
-                            #propagate_annotation(model)
-
                             return model
 
-                    quantizer = PT2EQuantizer2().set_global(
-                        quantization_config
-                    )
+                    if False:
+                        quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
+                            quantization_config
+                        )
+                    else:
+                        quantizer = PT2EQuantizer2().set_global(
+                            quantization_config
+                        )
                     model = torch._export.capture_pre_autograd_graph(self.model.sam_mask_decoder, sample_inputs)
                     model = quantize_pt2e.prepare_pt2e(model, quantizer)
 
