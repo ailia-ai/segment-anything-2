@@ -154,6 +154,15 @@ class MemoryEncoder(nn.Module):
         self.out_proj = nn.Identity()
         if out_dim != in_dim:
             self.out_proj = nn.Conv2d(in_dim, out_dim, kernel_size=1)
+        self.pos_cache_enable = False
+        self.pos_cache = None
+
+    def prepare_position_encoding(self, pix_feat: torch.Tensor):
+        x = self.pix_feat_proj(pix_feat)
+        x = self.fuser(x)
+        x = self.out_proj(x)
+        self.pos_cache_enable = True
+        self.pos_cache = self.position_encoding(x).to(x.dtype)
 
     def forward(
         self,
@@ -177,7 +186,8 @@ class MemoryEncoder(nn.Module):
         x = self.fuser(x)
         x = self.out_proj(x)
 
-        pos = self.position_encoding(x).to(x.dtype)
+        assert(self.pos_cache_enable)
+        pos = self.pos_cache
 
         return x, pos
         

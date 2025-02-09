@@ -1565,6 +1565,8 @@ class SAM2Base(torch.nn.Module):
         #if tflite_int8_memory_encoder == "mixed":
         #    tflite_int8_memory_encoder = "int8" # 暫定
 
+        self.memory_encoder.prepare_position_encoding(pix_feat)
+
         if export_to_tflite and not self.memory_encoder_tflite_exported:
             self.memory_encoder_tflite_exported = True
 
