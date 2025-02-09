@@ -172,10 +172,9 @@ class LayerNorm2dWithNN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert(self.load_weight)
-        orig_shape = x.shape
-        x = x.view(orig_shape[0], orig_shape[1], -1).transpose(1, 2)  # (N, C, H*W) -> (N, H*W, C)
+        x = x.permute(0, 2, 3, 1)
         x = self.layer_norm(x)
-        x = x.transpose(1, 2).view(orig_shape)  # (N, H*W, C) -> (N, C, H, W)
+        x = x.permute(0, 3, 1, 2)
         return x
 
 def sample_box_points(

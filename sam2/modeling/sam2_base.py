@@ -1584,42 +1584,44 @@ class SAM2Base(torch.nn.Module):
                     from ai_edge_torch.quantize import quant_config
                     from torch.ao.quantization import quantize_pt2e
 
-                    if True:
+                    quantization_config = pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
+
+                    if False:
                         quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
                             pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
                         )
                     else:
+                        import ai_edge_torch
+
+                        # torch quantization
+                        from ai_edge_torch.quantize import pt2e_quantizer
+                        from ai_edge_torch.quantize import quant_config
+                        from torch.ao.quantization import quantize_pt2e
+
+                        # quantize transpose_conv
+                        from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_output_act_qspec
+                        from torch.ao.quantization.quantizer import QuantizationAnnotation
+
                         class PT2EQuantizer2(pt2e_quantizer.PT2EQuantizer):
                             def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                                 super().annotate(model)
+
                                 for n in model.graph.nodes:
-                                    print(n.target, n.meta)
-                                    if n.target in [torch.ops.aten.add.Tensor, torch.ops.aten.mean.dim]:
-                                        if "quantization_annotation" in n.meta and ("s = s + self.eps" in n.meta["stack_trace"] or "u = x.mean(3, keepdim=True)" in n.meta["stack_trace"]):
-                                            print(n.target)
-                                            print("Before")
-                                            print(n.meta["quantization_annotation"])
+                                    if n.target in [torch.ops.aten.gelu.default]:
+                                        input_qspec_map = {}
 
-                                            from torch.ao.quantization.quantizer import QuantizationSpec
-                                            from torch.ao.quantization.observer import PlaceholderObserver
-                                            act_observer_or_fake_quant_ctr = PlaceholderObserver
+                                        input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
 
-                                            float_spec = QuantizationSpec(dtype=torch.float32,
-                                                observer_or_fake_quant_ctr=act_observer_or_fake_quant_ctr.with_args(
-                                                eps=2**-12
-                                            ),)
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=get_output_act_qspec(quantization_config),
+                                            _annotated=True,
+                                        )
 
-                                            for key in n.meta["quantization_annotation"].input_qspec_map:
-                                                n.meta["quantization_annotation"].input_qspec_map[key] = float_spec
-
-                                            n.meta["quantization_annotation"].output_qspec = float_spec
-
-                                            print("After")
-                                            print(n.meta["quantization_annotation"])
                                 return model
 
                         quantizer = PT2EQuantizer2().set_global(
-                            pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
+                            quantization_config
                         )
 
                     model = torch._export.capture_pre_autograd_graph(self.memory_encoder, sample_inputs)
