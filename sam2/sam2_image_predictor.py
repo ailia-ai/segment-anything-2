@@ -873,6 +873,15 @@ class SAM2ImagePredictor:
                                         _annotated=True,
                                     )
 
+                                if n.target in [torch.ops.aten.gelu.default]:
+                                    input_qspec_map = {}
+                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                        input_qspec_map=input_qspec_map,
+                                        output_qspec=get_output_act_qspec(quantization_config),
+                                        _annotated=True,
+                                    )
+
                             return model
 
                     if False:
