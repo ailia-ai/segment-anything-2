@@ -1302,9 +1302,46 @@ class SAM2Base(torch.nn.Module):
                     from ai_edge_torch.quantize import quant_config
                     from torch.ao.quantization import quantize_pt2e
 
-                    quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
-                        pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
-                    )
+                    # torch quantization
+                    from ai_edge_torch.quantize import pt2e_quantizer
+                    from ai_edge_torch.quantize import quant_config
+                    from torch.ao.quantization import quantize_pt2e
+
+                    # quantize transpose_conv
+                    from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_weight_qspec, get_bias_qspec, get_output_act_qspec
+                    from torch.ao.quantization.quantizer import QuantizationAnnotation
+
+                    quantization_config = pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
+
+                    class PT2EQuantizer2(pt2e_quantizer.PT2EQuantizer):
+                        def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                            super().annotate(model)
+
+                            target_node = None
+                            for n in model.graph.nodes:
+                                if str(n.target) == "output":
+                                    target_node = n.args[0][0]
+
+                            for n in model.graph.nodes:
+                                if n == target_node:
+                                    input_qspec_map = {}
+                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                        input_qspec_map=input_qspec_map,
+                                        output_qspec=get_output_act_qspec(quantization_config),
+                                        _annotated=True,
+                                    )
+
+                            return model
+
+                    if False:
+                        quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
+                            quantization_config
+                        )
+                    else:
+                        quantizer = PT2EQuantizer2().set_global(
+                            quantization_config
+                        )
                     model = torch._export.capture_pre_autograd_graph(self.memory_attention, sample_inputs)
                     model = quantize_pt2e.prepare_pt2e(model, quantizer)
 
