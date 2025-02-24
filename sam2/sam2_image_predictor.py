@@ -664,19 +664,85 @@ class SAM2ImagePredictor:
                 edge_model.export("model/prompt_encoder_"+model_id+".tflite")
 
             if tflite_int8_prompt_encoder:
-                if False:
+                if tflite_int8 == "mixed":
                     # torch quantization
-                    # labelがint64で量子化できない
+                    # labelがint64で量子化できないため、floatにannotateして扱う
                     from ai_edge_torch.quantize import pt2e_quantizer
                     from ai_edge_torch.quantize import quant_config
                     from torch.ao.quantization import quantize_pt2e
 
-                    quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
-                        pt2e_quantizer.get_symmetric_quantization_config()
-                    )
+                    # torch quantization
+                    from ai_edge_torch.quantize import pt2e_quantizer
+                    from ai_edge_torch.quantize import quant_config
+                    from torch.ao.quantization import quantize_pt2e
+                    from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_output_act_qspec
+                    from torch.ao.quantization.quantizer import QuantizationAnnotation
+
+                    quantization_config = pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
+
+                    class PT2EQuantizerPromptEncoder(pt2e_quantizer.PT2EQuantizer):
+                        def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                            super().annotate(model)
+
+                            for n in model.graph.nodes:
+                                #print(n.target, n.name)
+                                #if "quantization_annotation" in n.meta:
+                                #    print(n.meta["quantization_annotation"])
+
+                                if n.target in [torch.ops.aten.cat.default]:
+                                    if "quantization_annotation" in n.meta:
+                                        #print(str(n.args[0][0]))
+                                        if str(n.args[0][0]) == "arg1_1":
+                                            from torch.ao.quantization.quantizer import QuantizationSpec
+                                            from torch.ao.quantization.observer import PlaceholderObserver
+                                            act_observer_or_fake_quant_ctr = PlaceholderObserver
+
+                                            float_spec = QuantizationSpec(dtype=torch.float32,
+                                                observer_or_fake_quant_ctr=act_observer_or_fake_quant_ctr.with_args(
+                                                eps=2**-12
+                                            ),)
+
+                                            for key in n.meta["quantization_annotation"].input_qspec_map:
+                                                n.meta["quantization_annotation"].input_qspec_map[key] = float_spec
+
+                                            #n.meta["quantization_annotation"].output_qspec = int_spec
+
+                                if n.target in [torch.ops.aten.gelu.default]:
+                                    input_qspec_map = {}
+                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                        input_qspec_map=input_qspec_map,
+                                        output_qspec=get_output_act_qspec(quantization_config),
+                                        _annotated=True,
+                                    )
+
+                            return model
+
+                    if False:
+                        quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
+                            quantization_config
+                        )
+                    else:
+                        quantizer = PT2EQuantizerPromptEncoder().set_global(
+                            quantization_config
+                        )
+
                     model = torch._export.capture_pre_autograd_graph(self.model.sam_prompt_encoder, sample_inputs)
                     model = quantize_pt2e.prepare_pt2e(model, quantizer)
-                    model(concat_points[0], concat_points[1], mask_input_dummy, masks_enable) # calibration
+
+                    import glob
+                    images = glob.glob("./calibration/prompt_encoder/*.npz")
+                    if len(images) == 0:
+                        raise Exception("Calibration data not found. Please run --mode calibration first.")
+
+                    for i in range(len(images)):
+                        npz = np.load(images[i])
+                        data0 = torch.tensor(npz["arr_0"])
+                        data1 = torch.tensor(npz["arr_1"])
+                        data2 = torch.tensor(npz["arr_2"])
+                        data3 = torch.tensor(npz["arr_3"])
+                        model(data0, data1, data2, data3) # calibration
+    
                     model = quantize_pt2e.convert_pt2e(model, fold_quantize=False)
 
                     with_quantizer = ai_edge_torch.convert(
@@ -717,9 +783,9 @@ class SAM2ImagePredictor:
 
                     tfl_fullint_model.export("model/prompt_encoder_"+model_id+".int8.tflite")
 
-        if tflite_int8:
-            tflite_int8_prompt_encoder = False # 精度不足なのでFloatモデルで推論する
-            print("Warning : prompt encoder will use float model for better accuracy.")
+        #if tflite_int8:
+        #    tflite_int8_prompt_encoder = False # 精度不足なのでFloatモデルで推論する
+        #    print("Warning : prompt encoder will use float model for better accuracy.")
 
         if import_from_tflite:
             if self.prompt_encoder_tflite == None:

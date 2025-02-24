@@ -177,6 +177,29 @@ class LayerNorm2dWithNN(nn.Module):
         x = x.permute(0, 3, 1, 2)
         return x
 
+class LayerNorm2dWithNN3Dim(nn.Module):
+    def __init__(self, num_channels: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.num_channels = num_channels
+        # Set initial weights and biases similar to the original implementation
+        self.weight = nn.Parameter(torch.ones(num_channels))
+        self.bias = nn.Parameter(torch.zeros(num_channels))
+        self.eps = eps
+        self.load_weight = False
+
+    def load_weights_from_old_model(self):
+        self.layer_norm = nn.LayerNorm(normalized_shape=self.num_channels, eps=self.eps, elementwise_affine=True)
+        self.layer_norm.weight.data =  self.weight
+        self.layer_norm.bias.data = self.bias
+        self.load_weight = True
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert(self.load_weight)
+        x = x.permute(1, 2, 0)
+        x = self.layer_norm(x)
+        x = x.permute(2, 0, 1)
+        return x
+
 def sample_box_points(
     masks: torch.Tensor,
     noise: float = 0.1,  # SAM default
