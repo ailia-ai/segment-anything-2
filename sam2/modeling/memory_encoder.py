@@ -11,7 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from sam2.modeling.sam2_utils import DropPath, get_clones, LayerNorm2d
+from sam2.modeling.sam2_utils import DropPath, get_clones, LayerNorm2d, LayerNorm2dWithNN
 
 
 class MaskDownSampler(nn.Module):
@@ -48,7 +48,7 @@ class MaskDownSampler(nn.Module):
                     padding=padding,
                 )
             )
-            self.encoder.append(LayerNorm2d(mask_out_chans))
+            self.encoder.append(LayerNorm2dWithNN(mask_out_chans))
             self.encoder.append(activation())
             mask_in_chans = mask_out_chans
 
@@ -88,7 +88,7 @@ class CXBlock(nn.Module):
             padding=padding,
             groups=dim if use_dwconv else 1,
         )  # depthwise conv
-        self.norm = LayerNorm2d(dim, eps=1e-6)
+        self.norm = LayerNorm2dWithNN(dim, eps=1e-6)
         self.pwconv1 = nn.Linear(
             dim, 4 * dim
         )  # pointwise/1x1 convs, implemented with linear layers
@@ -154,6 +154,15 @@ class MemoryEncoder(nn.Module):
         self.out_proj = nn.Identity()
         if out_dim != in_dim:
             self.out_proj = nn.Conv2d(in_dim, out_dim, kernel_size=1)
+        self.pos_cache_enable = False
+        self.pos_cache = None
+
+    def prepare_position_encoding(self, pix_feat: torch.Tensor):
+        x = self.pix_feat_proj(pix_feat)
+        x = self.fuser(x)
+        x = self.out_proj(x)
+        self.pos_cache_enable = True
+        self.pos_cache = self.position_encoding(x).to(x.dtype)
 
     def forward(
         self,
@@ -177,7 +186,8 @@ class MemoryEncoder(nn.Module):
         x = self.fuser(x)
         x = self.out_proj(x)
 
-        pos = self.position_encoding(x).to(x.dtype)
+        assert(self.pos_cache_enable)
+        pos = self.pos_cache
 
         return x, pos
         

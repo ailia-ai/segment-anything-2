@@ -63,16 +63,8 @@ tflite (mixed)
 
 ```
 export PJRT_DEVICE=CPU
-export AIEDGETORCH_LAYOUT_OPTIMIZE_PARTITIONER=MINCUT
 python3 export_image_predictor.py --framework tflite --accuracy mixed --image_size 512
-export AIEDGETORCH_LAYOUT_OPTIMIZE_PARTITIONER=GREEDY
 python3 export_video_predictor.py --framework tflite --accuracy mixed --image_size 512
-```
-
-export AIEDGETORCH_LAYOUT_OPTIMIZE_PARTITIONER=GREEDY requires for below error of memory encoder.
-
-```
-AttributeError: 'OptimizeLayoutTransposesPass' object has no attribute 'get_paired_q_dq_ops'
 ```
 
 ## Inference only

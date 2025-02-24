@@ -9,7 +9,7 @@ from typing import List, Optional, Tuple, Type
 import torch
 from torch import nn
 
-from sam2.modeling.sam2_utils import LayerNorm2d, MLP
+from sam2.modeling.sam2_utils import LayerNorm2d, LayerNorm2dWithNN, MLP
 
 
 class MaskDecoder(nn.Module):
@@ -66,7 +66,7 @@ class MaskDecoder(nn.Module):
             nn.ConvTranspose2d(
                 transformer_dim, transformer_dim // 4, kernel_size=2, stride=2
             ),
-            LayerNorm2d(transformer_dim // 4),
+            LayerNorm2dWithNN(transformer_dim // 4),
             activation(),
             nn.ConvTranspose2d(
                 transformer_dim // 4, transformer_dim // 8, kernel_size=2, stride=2
