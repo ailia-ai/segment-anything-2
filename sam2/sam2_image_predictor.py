@@ -709,10 +709,11 @@ class SAM2ImagePredictor:
 
                                             #n.meta["quantization_annotation"].output_qspec = int_spec
 
-                                if n.target in [torch.ops.aten.gelu.default]:
-                                    # geluをint8で実行
+                                if n.target in [torch.ops.aten.gelu.default, torch.ops.aten.sin.default, torch.ops.aten.cos.default, torch.ops.aten.div_.Tensor]:
+                                    # geluとdivをint8で実行
                                     input_qspec_map = {}
-                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                    for i in range(len(n.args)):
+                                        input_qspec_map[n.args[i]] = get_input_act_qspec(quantization_config)
                                     n.meta["quantization_annotation"] = QuantizationAnnotation(
                                         input_qspec_map=input_qspec_map,
                                         output_qspec=get_output_act_qspec(quantization_config),
