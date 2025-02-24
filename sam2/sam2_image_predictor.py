@@ -628,6 +628,8 @@ class SAM2ImagePredictor:
         else:
             mask_input_dummy = mask_input
             masks_enable = torch.tensor([1], dtype=torch.int)
+        
+        self.model.sam_prompt_encoder.generate_dense_pe()
 
         if export_to_onnx:
             #print("concat_points", concat_points.shape)
@@ -666,7 +668,6 @@ class SAM2ImagePredictor:
             if tflite_int8_prompt_encoder:
                 if tflite_int8 == "mixed":
                     # torch quantization
-                    # labelがint64で量子化できないため、floatにannotateして扱う
                     from ai_edge_torch.quantize import pt2e_quantizer
                     from ai_edge_torch.quantize import quant_config
                     from torch.ao.quantization import quantize_pt2e
@@ -690,6 +691,7 @@ class SAM2ImagePredictor:
                                 #    print(n.meta["quantization_annotation"])
 
                                 if n.target in [torch.ops.aten.cat.default]:
+                                    # labelがint64で量子化できないため、floatにannotateして扱う
                                     if "quantization_annotation" in n.meta:
                                         #print(str(n.args[0][0]))
                                         if str(n.args[0][0]) == "arg1_1":
@@ -708,6 +710,7 @@ class SAM2ImagePredictor:
                                             #n.meta["quantization_annotation"].output_qspec = int_spec
 
                                 if n.target in [torch.ops.aten.gelu.default]:
+                                    # geluをint8で実行
                                     input_qspec_map = {}
                                     input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
                                     n.meta["quantization_annotation"] = QuantizationAnnotation(
