@@ -161,8 +161,9 @@ class PositionEmbeddingRandom(nn.Module):
     ) -> torch.Tensor:
         """Positionally encode points that are not normalized to [0,1]."""
         coords = coords_input.clone()
-        coords[:, :, 0] = coords[:, :, 0] / image_size[1]
-        coords[:, :, 1] = coords[:, :, 1] / image_size[0]
+        #coords[:, :, 0] = coords[:, :, 0] / image_size[1] # このままだと順番に書き換えるためにselectv2が生成される
+        #coords[:, :, 1] = coords[:, :, 1] / image_size[0]
+        coords[:, :, :2] /= torch.tensor(image_size[::-1])
         return self._pe_encoding(coords.to(torch.float))  # B x N x C
 
 
