@@ -602,6 +602,7 @@ class SAM2Base(torch.nn.Module):
             else:
                 mask_input_dummy = sam_mask_prompt
                 masks_enable = torch.tensor([1], dtype=torch.int)
+            self.sam_prompt_encoder.generate_dense_pe()
             sparse_embeddings, dense_embeddings, dense_pe = self.sam_prompt_encoder.forward(
                 coords=sam_point_coords,
                 labels=sam_point_labels,
