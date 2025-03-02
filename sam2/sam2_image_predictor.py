@@ -1105,8 +1105,6 @@ class SAM2ImagePredictor:
                 sparse_embeddings_pad[:,:sparse_embeddings.shape[1],:] = sparse_embeddings
                 attn_masks = torch.zeros((sparse_embeddings_pad.shape[0], sparse_embeddings_pad.shape[1]), dtype=torch.bool)
                 attn_masks[:,:sparse_embeddings.shape[1]] = True
-                print(sparse_embeddings.shape)
-                print(attn_masks)
                 sparse_embeddings = sparse_embeddings_pad
             else:
                 attn_masks = torch.ones((sparse_embeddings.shape[0], sparse_embeddings.shape[1]), dtype=torch.bool)

@@ -132,7 +132,7 @@ class TwoWayTransformer(nn.Module):
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding
         k = keys + image_pe
-        attn_out = self.final_attn_token_to_image.cross_attn(q=q, k=k, v=keys)
+        attn_out = self.final_attn_token_to_image.forward_without_attn_mask(q=q, k=k, v=keys)
         queries = queries + attn_out
         queries = self.norm_final_attn(queries)
 
@@ -188,10 +188,10 @@ class TwoWayAttentionBlock(nn.Module):
     ) -> Tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
-            queries = self.self_attn.self_attn(q=queries, k=queries, v=queries, attn_mask=attn_mask)
+            queries = self.self_attn.forward_with_attn_mask(q=queries, k=queries, v=queries, attn_mask=attn_mask)
         else:
             q = queries + query_pe
-            attn_out = self.self_attn.self_attn(q=q, k=q, v=queries, attn_mask=attn_mask)
+            attn_out = self.self_attn.forward_with_attn_mask(q=q, k=q, v=queries, attn_mask=attn_mask)
             queries = queries + attn_out
         queries = self.norm1(queries)
 
@@ -200,7 +200,7 @@ class TwoWayAttentionBlock(nn.Module):
         k = keys + key_pe
         
         #print(q.shape, m.shape)
-        attn_out = self.cross_attn_token_to_image.cross_attn(q=q, k=k, v=keys)
+        attn_out = self.cross_attn_token_to_image.forward_without_attn_mask(q=q, k=k, v=keys)
         queries = queries + attn_out
         queries = self.norm2(queries)
 
@@ -212,7 +212,7 @@ class TwoWayAttentionBlock(nn.Module):
         # Cross attention block, image embedding attending to tokens
         q = queries + query_pe
         k = keys + key_pe
-        attn_out = self.cross_attn_image_to_token.cross_attn(q=k, k=q, v=queries)
+        attn_out = self.cross_attn_image_to_token.forward_with_attn_mask(q=k, k=q, v=queries, attn_mask=attn_mask)
         keys = keys + attn_out
         keys = self.norm4(keys)
 
@@ -259,7 +259,7 @@ class Attention(nn.Module):
         x = x.transpose(1, 2)
         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
 
-    def self_attn(self, q: Tensor, k: Tensor, v: Tensor, attn_mask: Tensor) -> Tensor:
+    def forward_with_attn_mask(self, q: Tensor, k: Tensor, v: Tensor, attn_mask: Tensor) -> Tensor:
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
@@ -293,7 +293,7 @@ class Attention(nn.Module):
 
         return out
 
-    def cross_attn(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+    def forward_without_attn_mask(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
