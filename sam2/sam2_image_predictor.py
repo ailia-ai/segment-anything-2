@@ -605,6 +605,10 @@ class SAM2ImagePredictor:
         else:
             concat_points = None
 
+        # Convert to static shape using attn_masks
+        convert_to_static_shape = True #export_to_tflite or import_from_tflite or self.calibration
+        original_sparse_embedding_length = concat_points[0].shape[1] + 1
+
         # Embed prompts
         if boxes is not None:
             box_coords = boxes.reshape(-1, 2, 2)
@@ -618,6 +622,16 @@ class SAM2ImagePredictor:
                 concat_points = (concat_coords, concat_labels)
             else:
                 concat_points = (box_coords, box_labels)
+
+        if convert_to_static_shape:
+            padding_length= 16
+            concat_points_pad = (
+                torch.zeros(concat_points[0].shape[0], padding_length, concat_points[0].shape[2]),
+                torch.zeros(concat_points[0].shape[0], padding_length)
+            )
+            concat_points_pad[0][:, 0:concat_points[0].shape[1], :] = concat_points[0]
+            concat_points_pad[1][:, 0:concat_points[1].shape[1]] = concat_points[1]
+            concat_points = concat_points_pad
 
         # New data for onnx
         if concat_points is None:
@@ -857,6 +871,9 @@ class SAM2ImagePredictor:
                     masks_enable.numpy()
                 )
                 self.calibration_cnt_prompt_encoder = self.calibration_cnt_prompt_encoder + 1
+
+        if convert_to_static_shape:
+            sparse_embeddings = sparse_embeddings[:, :original_sparse_embedding_length, :]
 
         # Predict masks
         batched_mode = (
@@ -1098,7 +1115,6 @@ class SAM2ImagePredictor:
             low_res_masks, iou_predictions, _, _  = self.model.sam_mask_decoder.forward_postprocess(masks, iou_pred, sam_tokens_out, object_score_logits, multimask_output)
 
         if not import_from_onnx and not import_from_tflite:
-            convert_to_static_shape = True #export_to_tflite or import_from_tflite or self.calibration
             if convert_to_static_shape:
                 max_num_sparse_embeddings = 32 #sparse_embeddings.shape[1]
                 sparse_embeddings_pad = torch.zeros(sparse_embeddings.shape[0], max_num_sparse_embeddings, sparse_embeddings.shape[2])
