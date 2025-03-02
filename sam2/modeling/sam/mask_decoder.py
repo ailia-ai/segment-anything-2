@@ -116,8 +116,9 @@ class MaskDecoder(nn.Module):
         dense_prompt_embeddings: torch.Tensor,
         multimask_output: bool,
         repeat_image: bool,
-        high_res_features1: Optional[torch.Tensor] = None,
-        high_res_features2: Optional[torch.Tensor] = None,
+        high_res_features1: Optional[torch.Tensor],
+        high_res_features2: Optional[torch.Tensor],
+        attn_masks: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predict masks given image and prompt embeddings.
@@ -143,6 +144,7 @@ class MaskDecoder(nn.Module):
             repeat_image=repeat_image,
             high_res_features1=high_res_features1,
             high_res_features2=high_res_features2,
+            attn_masks=attn_masks
         )
 
         # Select the correct mask or masks for output
@@ -176,8 +178,9 @@ class MaskDecoder(nn.Module):
         sparse_prompt_embeddings: torch.Tensor,
         dense_prompt_embeddings: torch.Tensor,
         repeat_image: bool,
-        high_res_features1: Optional[torch.Tensor] = None,
-        high_res_features2: Optional[torch.Tensor] = None,
+        high_res_features1: Optional[torch.Tensor],
+        high_res_features2: Optional[torch.Tensor],
+        attn_masks: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         masks, iou_pred, mask_tokens_out, object_score_logits = self.predict_masks(
             image_embeddings=image_embeddings,
@@ -187,6 +190,7 @@ class MaskDecoder(nn.Module):
             repeat_image=repeat_image,
             high_res_features1=high_res_features1,
             high_res_features2=high_res_features2,
+            attn_masks=attn_masks
         )
         return masks, iou_pred, mask_tokens_out, object_score_logits
 
@@ -228,8 +232,9 @@ class MaskDecoder(nn.Module):
         sparse_prompt_embeddings: torch.Tensor,
         dense_prompt_embeddings: torch.Tensor,
         repeat_image: bool,
-        high_res_features1: Optional[torch.Tensor] = None,
-        high_res_features2: Optional[torch.Tensor] = None,
+        high_res_features1: Optional[torch.Tensor],
+        high_res_features2: Optional[torch.Tensor],
+        attn_masks: torch.Tensor, # for sparse_prompt_embeddings
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Predicts masks. See 'forward' for more details."""
         # Concatenate output tokens
@@ -251,8 +256,10 @@ class MaskDecoder(nn.Module):
         output_tokens = output_tokens.unsqueeze(0).expand(
             sparse_prompt_embeddings.shape[0], -1, -1
         )
+        output_tokens_attn_masks = torch.ones((output_tokens.shape[0], output_tokens.shape[1]), dtype=torch.bool)
         tokens = torch.cat((output_tokens, sparse_prompt_embeddings), dim=1)
-
+        tokens_attn_masks = torch.concat((output_tokens_attn_masks, attn_masks), dim = 1)
+        
         # Expand per-image data in batch direction to be per-mask
         if repeat_image:
             src = torch.repeat_interleave(image_embeddings, tokens.shape[0], dim=0)
@@ -272,7 +279,7 @@ class MaskDecoder(nn.Module):
         b, c, h, w = src.shape
 
         # Run the transformer
-        hs, src = self.transformer(src, pos_src, tokens)
+        hs, src = self.transformer(src, pos_src, tokens, tokens_attn_masks)
         iou_token_out = hs[:, s, :]
         mask_tokens_out = hs[:, s + 1 : (s + 1 + self.num_mask_tokens), :]
 

@@ -610,6 +610,8 @@ class SAM2Base(torch.nn.Module):
                 masks_enable=masks_enable
             )
 
+            attn_masks = torch.ones((sparse_embeddings.shape[0], sparse_embeddings.shape[1]), dtype=torch.bool)
+
             (
                 low_res_multimasks,
                 ious,
@@ -624,6 +626,7 @@ class SAM2Base(torch.nn.Module):
                 repeat_image=False,  # the image is already batched
                 high_res_features1=high_res_features[0],
                 high_res_features2=high_res_features[1],
+                attn_masks=attn_masks
             )
             if self.debug:
                 print(low_res_multimasks.shape)

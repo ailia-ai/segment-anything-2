@@ -1098,6 +1098,19 @@ class SAM2ImagePredictor:
             low_res_masks, iou_predictions, _, _  = self.model.sam_mask_decoder.forward_postprocess(masks, iou_pred, sam_tokens_out, object_score_logits, multimask_output)
 
         if not import_from_onnx and not import_from_tflite:
+            convert_to_static_shape = True #export_to_tflite or import_from_tflite or self.calibration
+            if convert_to_static_shape:
+                max_num_sparse_embeddings = 32 #sparse_embeddings.shape[1]
+                sparse_embeddings_pad = torch.zeros(sparse_embeddings.shape[0], max_num_sparse_embeddings, sparse_embeddings.shape[2])
+                sparse_embeddings_pad[:,:sparse_embeddings.shape[1],:] = sparse_embeddings
+                attn_masks = torch.zeros((sparse_embeddings_pad.shape[0], sparse_embeddings_pad.shape[1]), dtype=torch.bool)
+                attn_masks[:,:sparse_embeddings.shape[1]] = True
+                print(sparse_embeddings.shape)
+                print(attn_masks)
+                sparse_embeddings = sparse_embeddings_pad
+            else:
+                attn_masks = torch.ones((sparse_embeddings.shape[0], sparse_embeddings.shape[1]), dtype=torch.bool)
+
             self.model.sam_mask_decoder.forward = self.model.sam_mask_decoder.forward_normal
             low_res_masks, iou_predictions, _, _  = self.model.sam_mask_decoder(
                 image_embeddings=self._features["image_embed"][img_idx].unsqueeze(0),
@@ -1108,6 +1121,7 @@ class SAM2ImagePredictor:
                 repeat_image=batched_mode,
                 high_res_features1=high_res_features[0],
                 high_res_features2=high_res_features[1],
+                attn_masks=attn_masks
             )
 
             if self.calibration:
