@@ -111,7 +111,7 @@ ann_obj_id = 1  # give a unique id to each object we interact with (it can be an
 # Let's add a 2nd positive click at (x, y) = (250, 220) to refine the mask
 # sending all clicks (and their labels) to `add_new_points_or_box`
 # for labels, `1` means positive click and `0` means negative click
-if True:#args.framework == "tflite" or args.framework == "ailia_tflite":
+if False:#args.framework == "tflite" or args.framework == "ailia_tflite":
     points = np.array([[210, 350]], dtype=np.float32)
     labels = np.array([1], np.int32)
 else:

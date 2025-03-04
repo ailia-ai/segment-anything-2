@@ -435,6 +435,20 @@ class SAM2Base(torch.nn.Module):
             mask_input_dummy = sam_mask_prompt
             masks_enable = torch.tensor([1], dtype=torch.int)
 
+        # padding
+        convert_to_static_shape = export_to_tflite or import_from_tflite or self.calibration
+        original_sparse_embedding_length = sam_point_coords.shape[1] + 1
+        max_sparse_embedding_length = 32
+
+        if convert_to_static_shape:
+            padding_length= max_sparse_embedding_length - 1
+            sam_point_coords_pad = torch.zeros(sam_point_coords.shape[0], padding_length, sam_point_coords.shape[2])
+            sam_point_labels_pad = -torch.ones(sam_point_labels.shape[0], padding_length)
+            sam_point_coords_pad[:, 0:sam_point_coords.shape[1], :] = sam_point_coords
+            sam_point_labels_pad[:, 0:sam_point_labels.shape[1]] = sam_point_labels
+            sam_point_coords = sam_point_coords_pad
+            sam_point_labels = sam_point_labels_pad
+
         if import_from_onnx:
             if self.debug:
                 print("begin prompt encoder onnx")
@@ -465,7 +479,8 @@ class SAM2Base(torch.nn.Module):
                 "dense_prompt_embeddings": dense_embeddings.numpy(),
                 #repeat_image=False,  # the image is already batched
                 "high_res_features1":high_res_features[0].numpy(),
-                "high_res_features2":high_res_features[1].numpy()})
+                "high_res_features2":high_res_features[1].numpy(),
+                "attn_masks":attn_masks.numpy()})
             masks = torch.Tensor(masks)
             iou_pred = torch.Tensor(iou_pred)
             sam_tokens_out = torch.Tensor(sam_tokens_out)
@@ -528,6 +543,20 @@ class SAM2Base(torch.nn.Module):
                 dense_embeddings = self.prompt_encoder_tflite.get_tensor(output_details[0]["index"])
                 dense_pe = self.prompt_encoder_tflite.get_tensor(output_details[2]["index"])
 
+            if convert_to_static_shape:
+                sparse_embeddings = sparse_embeddings[:, :original_sparse_embedding_length, :]
+
+            # Prepare attn_mask for mask decoder
+            if convert_to_static_shape:
+                max_num_sparse_embeddings = max_sparse_embedding_length
+                sparse_embeddings_pad = np.zeros((sparse_embeddings.shape[0], max_num_sparse_embeddings, sparse_embeddings.shape[2]))
+                sparse_embeddings_pad[:,:sparse_embeddings.shape[1],:] = sparse_embeddings
+                attn_masks = np.zeros((sparse_embeddings_pad.shape[0], sparse_embeddings_pad.shape[1]), dtype=np.bool8)
+                attn_masks[:,:sparse_embeddings.shape[1]] = True
+                sparse_embeddings = sparse_embeddings_pad
+            else:
+                attn_masks = np.ones((sparse_embeddings.shape[0], sparse_embeddings.shape[1]), dtype=np.bool8)
+
             if self.mask_decoder_tflite == None:
                 int8_id = ""
                 if tflite_int8:
@@ -560,6 +589,7 @@ class SAM2Base(torch.nn.Module):
                 self.mask_decoder_tflite.set_tensor(input_details[5]["index"], batched_mode)
                 self.mask_decoder_tflite.set_tensor(input_details[0]["index"], self.format_input_tensor(high_res_features[0].numpy(), input_details, 0))
                 self.mask_decoder_tflite.set_tensor(input_details[4]["index"], self.format_input_tensor(high_res_features[1].numpy(), input_details, 4))
+                self.mask_decoder_tflite.set_tensor(input_details[7]["index"], self.format_input_tensor(attn_masks, input_details, 7))
                 self.mask_decoder_tflite.invoke()
 
                 masks = self.get_output_tensor(self.mask_decoder_tflite, output_details, 2)
@@ -574,6 +604,7 @@ class SAM2Base(torch.nn.Module):
                 self.mask_decoder_tflite.set_tensor(input_details[5]["index"], batched_mode)
                 self.mask_decoder_tflite.set_tensor(input_details[0]["index"], high_res_features[0].numpy())
                 self.mask_decoder_tflite.set_tensor(input_details[4]["index"], high_res_features[1].numpy())
+                self.mask_decoder_tflite.set_tensor(input_details[7]["index"], attn_masks)
                 self.mask_decoder_tflite.invoke()
 
                 masks = self.mask_decoder_tflite.get_tensor(output_details[2]["index"])
