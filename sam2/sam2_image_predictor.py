@@ -628,7 +628,7 @@ class SAM2ImagePredictor:
             padding_length= max_sparse_embedding_length - 1
             concat_points_pad = (
                 torch.zeros(concat_points[0].shape[0], padding_length, concat_points[0].shape[2]),
-                torch.zeros(concat_points[0].shape[0], padding_length)
+                -torch.ones(concat_points[0].shape[0], padding_length)
             )
             concat_points_pad[0][:, 0:concat_points[0].shape[1], :] = concat_points[0]
             concat_points_pad[1][:, 0:concat_points[1].shape[1]] = concat_points[1]
