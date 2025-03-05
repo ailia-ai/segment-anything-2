@@ -605,6 +605,11 @@ class SAM2ImagePredictor:
         else:
             concat_points = None
 
+        # Convert to static shape using attn_masks
+        convert_to_static_shape = export_to_tflite or import_from_tflite or self.calibration
+        original_sparse_embedding_length = concat_points[0].shape[1] + 1
+        max_sparse_embedding_length = 32
+
         # Embed prompts
         if boxes is not None:
             box_coords = boxes.reshape(-1, 2, 2)
@@ -618,6 +623,16 @@ class SAM2ImagePredictor:
                 concat_points = (concat_coords, concat_labels)
             else:
                 concat_points = (box_coords, box_labels)
+
+        if convert_to_static_shape:
+            padding_length= max_sparse_embedding_length - 1
+            concat_points_pad = (
+                torch.zeros(concat_points[0].shape[0], padding_length, concat_points[0].shape[2]),
+                -torch.ones(concat_points[0].shape[0], padding_length)
+            )
+            concat_points_pad[0][:, 0:concat_points[0].shape[1], :] = concat_points[0]
+            concat_points_pad[1][:, 0:concat_points[1].shape[1]] = concat_points[1]
+            concat_points = concat_points_pad
 
         # New data for onnx
         if concat_points is None:
@@ -858,6 +873,20 @@ class SAM2ImagePredictor:
                 )
                 self.calibration_cnt_prompt_encoder = self.calibration_cnt_prompt_encoder + 1
 
+        if convert_to_static_shape:
+            sparse_embeddings = sparse_embeddings[:, :original_sparse_embedding_length, :]
+
+        # Prepare attn_mask for mask decoder
+        if convert_to_static_shape:
+            max_num_sparse_embeddings = max_sparse_embedding_length
+            sparse_embeddings_pad = torch.zeros(sparse_embeddings.shape[0], max_num_sparse_embeddings, sparse_embeddings.shape[2])
+            sparse_embeddings_pad[:,:sparse_embeddings.shape[1],:] = sparse_embeddings
+            attn_masks = torch.zeros((sparse_embeddings_pad.shape[0], sparse_embeddings_pad.shape[1]), dtype=torch.bool)
+            attn_masks[:,:sparse_embeddings.shape[1]] = True
+            sparse_embeddings = sparse_embeddings_pad
+        else:
+            attn_masks = torch.ones((sparse_embeddings.shape[0], sparse_embeddings.shape[1]), dtype=torch.bool)
+
         # Predict masks
         batched_mode = (
             concat_points is not None and concat_points[0].shape[0] > 1
@@ -873,12 +902,13 @@ class SAM2ImagePredictor:
         if export_to_onnx:
             self.model.sam_mask_decoder.forward = self.model.sam_mask_decoder.forward_masks # multimask_outputが定数になってしまうので分離
             torch.onnx.export(
-                self.model.sam_mask_decoder, (self._features["image_embed"][img_idx].unsqueeze(0), dense_pe, sparse_embeddings, dense_embeddings, batched_mode, high_res_features[0], high_res_features[1]),
+                self.model.sam_mask_decoder, (self._features["image_embed"][img_idx].unsqueeze(0), dense_pe, sparse_embeddings, dense_embeddings, batched_mode, high_res_features[0], high_res_features[1], attn_masks),
                 'model/mask_decoder_'+model_id+'.onnx',
-                input_names=["image_embeddings", "image_pe", "sparse_prompt_embeddings", "dense_prompt_embeddings", "repeat_image", "high_res_features1", "high_res_features2"],
+                input_names=["image_embeddings", "image_pe", "sparse_prompt_embeddings", "dense_prompt_embeddings", "repeat_image", "high_res_features1", "high_res_features2", "attn_masks"],
                 output_names=["masks", "iou_pred", "sam_tokens_out", "object_score_logits"],
                 dynamic_axes={
                     'sparse_prompt_embeddings': {1: 'n'},
+                    'attn_masks': {1: 'n'},
                 },
                 verbose=False, opset_version=17
             )
@@ -892,7 +922,8 @@ class SAM2ImagePredictor:
                 "sparse_prompt_embeddings": sparse_embeddings.numpy(),
                 "dense_prompt_embeddings": dense_embeddings.numpy(),
                 "high_res_features1":high_res_features[0].numpy(),
-                "high_res_features2":high_res_features[1].numpy()})
+                "high_res_features2":high_res_features[1].numpy(),
+                "attn_masks": attn_masks.numpy()})
             masks = torch.Tensor(masks)
             iou_pred = torch.Tensor(iou_pred)
             sam_tokens_out = torch.Tensor(sam_tokens_out)
@@ -901,7 +932,7 @@ class SAM2ImagePredictor:
 
         if export_to_tflite:
             self.model.sam_mask_decoder.forward = self.model.sam_mask_decoder.forward_masks
-            sample_inputs = (self._features["image_embed"][img_idx].unsqueeze(0), dense_pe, sparse_embeddings, dense_embeddings, batched_mode, high_res_features[0], high_res_features[1])
+            sample_inputs = (self._features["image_embed"][img_idx].unsqueeze(0), dense_pe, sparse_embeddings, dense_embeddings, batched_mode, high_res_features[0], high_res_features[1], attn_masks)
 
             if not tflite_int8:
                 import ai_edge_torch
@@ -979,7 +1010,8 @@ class SAM2ImagePredictor:
                         data4 = batched_mode
                         data5 = torch.tensor(npz["arr_4"])
                         data6 = torch.tensor(npz["arr_5"])
-                        model(data0, data1, data2, data3, data4, data5, data6)
+                        data7 = torch.tensor(npz["arr_6"])
+                        model(data0, data1, data2, data3, data4, data5, data6, data7)
 
                     model = quantize_pt2e.convert_pt2e(model, fold_quantize=False)
 
@@ -1016,8 +1048,9 @@ class SAM2ImagePredictor:
                             data5[0] = batched_mode
                             data0 = npz["arr_4"]
                             data4 = npz["arr_5"]
+                            data7 = npz["arr_6"]
 
-                            yield [data0, data1, data2, data3, data4, data5, data6]
+                            yield [data0, data1, data2, data3, data4, data5, data6, data7]
                     
                     tfl_converter_flags = {
                         'optimizations': [tf.lite.Optimize.DEFAULT],
@@ -1050,10 +1083,6 @@ class SAM2ImagePredictor:
                     self.mask_decoder_tflite  = tf.lite.Interpreter(model_path="model/mask_decoder_"+model_id+int8_id+".tflite")
                 self.mask_decoder_tflite.allocate_tensors()
                 input_details = self.mask_decoder_tflite.get_input_details()
-                #self.mask_decoder_tflite.resize_tensor_input(
-                #    input_details[1]["index"], 
-                #    [1, sparse_embeddings.shape[1], 256]
-                #)
                 self.mask_decoder_tflite.allocate_tensors()
 
             input_details = self.mask_decoder_tflite.get_input_details()
@@ -1069,6 +1098,7 @@ class SAM2ImagePredictor:
                 self.mask_decoder_tflite.set_tensor(input_details[5]["index"], batched_mode)
                 self.mask_decoder_tflite.set_tensor(input_details[0]["index"], self.format_input_tensor(high_res_features[0].numpy(), input_details, 0))
                 self.mask_decoder_tflite.set_tensor(input_details[4]["index"], self.format_input_tensor(high_res_features[1].numpy(), input_details, 4))
+                self.mask_decoder_tflite.set_tensor(input_details[7]["index"], self.format_input_tensor(attn_masks.numpy(), input_details, 7))
                 self.mask_decoder_tflite.invoke()
 
                 masks = self.get_output_tensor(self.mask_decoder_tflite, output_details, 2)
@@ -1083,6 +1113,7 @@ class SAM2ImagePredictor:
                 self.mask_decoder_tflite.set_tensor(input_details[5]["index"], batched_mode)
                 self.mask_decoder_tflite.set_tensor(input_details[0]["index"], high_res_features[0].numpy())
                 self.mask_decoder_tflite.set_tensor(input_details[4]["index"], high_res_features[1].numpy())
+                self.mask_decoder_tflite.set_tensor(input_details[7]["index"], attn_masks.numpy())
                 self.mask_decoder_tflite.invoke()
 
                 masks = self.mask_decoder_tflite.get_tensor(output_details[2]["index"])
@@ -1108,6 +1139,7 @@ class SAM2ImagePredictor:
                 repeat_image=batched_mode,
                 high_res_features1=high_res_features[0],
                 high_res_features2=high_res_features[1],
+                attn_masks=attn_masks
             )
 
             if self.calibration:
@@ -1119,7 +1151,8 @@ class SAM2ImagePredictor:
                     sparse_embeddings.numpy(),
                     dense_embeddings.numpy(),
                     high_res_features[0].numpy(),
-                    high_res_features[1].numpy()
+                    high_res_features[1].numpy(),
+                    attn_masks.numpy()
                 )
                 self.calibration_cnt_mask_decoder = self.calibration_cnt_mask_decoder + 1
 

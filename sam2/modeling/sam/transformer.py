@@ -95,6 +95,7 @@ class TwoWayTransformer(nn.Module):
         image_embedding: Tensor,
         image_pe: Tensor,
         point_embedding: Tensor,
+        point_embedding_attn_mask: Tensor
     ) -> Tuple[Tensor, Tensor]:
         """
         Args:
@@ -125,12 +126,13 @@ class TwoWayTransformer(nn.Module):
                 keys=keys,
                 query_pe=point_embedding,
                 key_pe=image_pe,
+                attn_mask=point_embedding_attn_mask
             )
 
         # Apply the final attention layer from the points to the image
         q = queries + point_embedding
         k = keys + image_pe
-        attn_out = self.final_attn_token_to_image(q=q, k=k, v=keys)
+        attn_out = self.final_attn_token_to_image.forward_without_attn_mask(q=q, k=k, v=keys)
         queries = queries + attn_out
         queries = self.norm_final_attn(queries)
 
@@ -182,21 +184,23 @@ class TwoWayAttentionBlock(nn.Module):
         self.skip_first_layer_pe = skip_first_layer_pe
 
     def forward(
-        self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
+        self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor, attn_mask:Tensor
     ) -> Tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
-            queries = self.self_attn(q=queries, k=queries, v=queries)
+            queries = self.self_attn.forward_with_attn_mask(q=queries, k=queries, v=queries, attn_mask=attn_mask)
         else:
             q = queries + query_pe
-            attn_out = self.self_attn(q=q, k=q, v=queries)
+            attn_out = self.self_attn.forward_with_attn_mask(q=q, k=q, v=queries, attn_mask=attn_mask)
             queries = queries + attn_out
         queries = self.norm1(queries)
 
         # Cross attention block, tokens attending to image embedding
         q = queries + query_pe
         k = keys + key_pe
-        attn_out = self.cross_attn_token_to_image(q=q, k=k, v=keys)
+        
+        #print(q.shape, m.shape)
+        attn_out = self.cross_attn_token_to_image.forward_without_attn_mask(q=q, k=k, v=keys)
         queries = queries + attn_out
         queries = self.norm2(queries)
 
@@ -208,7 +212,7 @@ class TwoWayAttentionBlock(nn.Module):
         # Cross attention block, image embedding attending to tokens
         q = queries + query_pe
         k = keys + key_pe
-        attn_out = self.cross_attn_image_to_token(q=k, k=q, v=queries)
+        attn_out = self.cross_attn_image_to_token.forward_with_attn_mask(q=k, k=q, v=queries, attn_mask=attn_mask)
         keys = keys + attn_out
         keys = self.norm4(keys)
 
@@ -255,7 +259,41 @@ class Attention(nn.Module):
         x = x.transpose(1, 2)
         return x.reshape(b, n_tokens, n_heads * c_per_head)  # B x N_tokens x C
 
-    def forward(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+    def forward_with_attn_mask(self, q: Tensor, k: Tensor, v: Tensor, attn_mask: Tensor) -> Tensor:
+        # Input projections
+        q = self.q_proj(q)
+        k = self.k_proj(k)
+        v = self.v_proj(v)
+
+        # Separate into heads
+        q = self._separate_heads(q, self.num_heads)
+        k = self._separate_heads(k, self.num_heads)
+        v = self._separate_heads(v, self.num_heads)
+
+        dropout_p = self.dropout_p if self.training else 0.0
+        # Attention
+        #try:
+        #    with sdp_kernel_context(dropout_p):
+        #        out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+        #except Exception as e:
+        if True:
+            # Fall back to all kernels if the Flash attention kernel fails
+            #warnings.warn(
+            #    f"Flash Attention kernel failed due to: {e}\nFalling back to all available "
+            #    f"kernels for scaled_dot_product_attention (which may have a slower speed).",
+            #    category=UserWarning,
+            #    stacklevel=2,
+            #)
+            global ALLOW_ALL_KERNELS
+            ALLOW_ALL_KERNELS = True
+            out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, attn_mask=attn_mask)
+
+        out = self._recombine_heads(out)
+        out = self.out_proj(out)
+
+        return out
+
+    def forward_without_attn_mask(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
         # Input projections
         q = self.q_proj(q)
         k = self.k_proj(k)
