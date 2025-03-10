@@ -1344,7 +1344,8 @@ class SAM2Base(torch.nn.Module):
 
                     # quantize transpose_conv
                     from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_weight_qspec, get_bias_qspec, get_output_act_qspec
-                    from torch.ao.quantization.quantizer import QuantizationAnnotation
+                    from torch.ao.quantization.quantizer import QuantizationAnnotation, QuantizationSpec
+                    from torch.ao.quantization.observer import PlaceholderObserver, HistogramObserver
 
                     quantization_config = pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
 
@@ -1352,6 +1353,7 @@ class SAM2Base(torch.nn.Module):
                         def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                             super().annotate(model)
 
+                            # 出力の量子化
                             target_node = None
                             for n in model.graph.nodes:
                                 if str(n.target) == "output":
@@ -1361,6 +1363,44 @@ class SAM2Base(torch.nn.Module):
                                 if n == target_node:
                                     input_qspec_map = {}
                                     input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                        input_qspec_map=input_qspec_map,
+                                        output_qspec=get_output_act_qspec(quantization_config),
+                                        _annotated=True,
+                                    )
+
+                            # scaled dot product attentionのsymmetric quantization
+                            for n in model.graph.nodes:
+                                print(n.name, n.target, n.args)
+                                if n.target in [torch.ops.aten.scaled_dot_product_attention.default]:
+                                    print(n.name)
+                                    print(n.target)
+                                    print(n.meta)
+                                    print(n.args)
+                                    input_qspec_map = {}
+
+                                    spec = QuantizationSpec(
+                                        dtype=torch.int8,
+                                        quant_min=-128,
+                                        quant_max=127,
+                                        qscheme=torch.per_tensor_symmetric, # per_tensor_affine
+                                        observer_or_fake_quant_ctr=HistogramObserver.with_args(
+                                            reduce_range=True,
+                                            quant_min=-128,
+                                            quant_max=127
+                                        )
+                                    )
+
+                                    for i in range(3):  # query(0), key(1), value(2)
+                                        input_qspec_map[n.args[i]] = spec
+                                    
+                                    if len(n.args) >= 4:
+                                        float_spec = QuantizationSpec(
+                                            dtype=torch.float32,
+                                            observer_or_fake_quant_ctr=PlaceholderObserver.with_args(eps=2**-12)
+                                        )
+                                        input_qspec_map[n.args[3]] = float_spec
+                                        
                                     n.meta["quantization_annotation"] = QuantizationAnnotation(
                                         input_qspec_map=input_qspec_map,
                                         output_qspec=get_output_act_qspec(quantization_config),
