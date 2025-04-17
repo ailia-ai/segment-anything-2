@@ -960,6 +960,7 @@ class SAM2ImagePredictor:
 
                             for n in model.graph.nodes:
                                 if n.target in [torch.ops.aten.conv_transpose2d.input]:
+                                if n.target in [torch.ops.aten.conv_transpose2d.input, torch.ops.aten.linear.default]:
                                     input_qspec_map = {}
 
                                     input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
@@ -982,6 +983,23 @@ class SAM2ImagePredictor:
                                         output_qspec=get_output_act_qspec(quantization_config),
                                         _annotated=True,
                                     )
+
+                            if True:
+                                # 出力ノードをint8にする
+                                target_node = None
+                                for n in model.graph.nodes:
+                                    if str(n.target) == "output":
+                                        target_node = n.args[0][0]
+
+                                for n in model.graph.nodes:
+                                    if n == target_node:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=get_output_act_qspec(quantization_config),
+                                            _annotated=True,
+                                        )
 
                             return model
 
