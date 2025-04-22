@@ -39,6 +39,10 @@ class PositionEmbeddingSine(nn.Module):
 
         self.cache = {}
 
+        # 事前計算する
+        dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32)
+        self.dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
+
     def _encode_xy(self, x, y):
         # The positions are expected to be normalized
         assert len(x) == len(y) and x.ndim == y.ndim == 1
@@ -96,8 +100,12 @@ class PositionEmbeddingSine(nn.Module):
             y_embed = y_embed / (y_embed[:, -1:, :] + eps) * self.scale
             x_embed = x_embed / (x_embed[:, :, -1:] + eps) * self.scale
 
-        dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32, device=x.device)
-        dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
+        # 通常は動的計算だが、Int8への量子化に失敗するので、事前計算にする
+        if True:
+            dim_t = self.dim_t
+        else:
+            dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32)
+            dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
 
         pos_x = x_embed[:, :, :, None] / dim_t
         pos_y = y_embed[:, :, :, None] / dim_t
@@ -129,7 +137,7 @@ class PositionEmbeddingRandom(nn.Module):
     def _pe_encoding(self, coords: torch.Tensor) -> torch.Tensor:
         """Positionally encode points that are normalized to [0,1]."""
         # assuming coords are in [0, 1]^2 square and have d_1 x ... x d_n x 2 shape
-        coords = 2 * coords - 1
+        coords = 2.0 * coords - 1 # 2だとint32 x int32になりtorchの量子化に失敗する
         coords = coords @ self.positional_encoding_gaussian_matrix
         coords = 2 * np.pi * coords
         # outputs d_1 x ... x d_n x C shape
@@ -153,8 +161,9 @@ class PositionEmbeddingRandom(nn.Module):
     ) -> torch.Tensor:
         """Positionally encode points that are not normalized to [0,1]."""
         coords = coords_input.clone()
-        coords[:, :, 0] = coords[:, :, 0] / image_size[1]
-        coords[:, :, 1] = coords[:, :, 1] / image_size[0]
+        #coords[:, :, 0] = coords[:, :, 0] / image_size[1] # このままだと順番に書き換えるためにselectv2が生成される
+        #coords[:, :, 1] = coords[:, :, 1] / image_size[0] # その結果、量子化係数を適切に決定できず、リスケーリング後に0に落ちる
+        coords[:, :, :2] /= torch.tensor(image_size[::-1], dtype = torch.float32)
         return self._pe_encoding(coords.to(torch.float))  # B x N x C
 
 

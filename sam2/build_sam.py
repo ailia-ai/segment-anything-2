@@ -107,6 +107,7 @@ def build_sam2_video_predictor(
     hydra_overrides_extra=[],
     apply_postprocessing=True,
     image_size=1024,
+    calibration=False,
     **kwargs,
 ):
     hydra_overrides = [
@@ -131,6 +132,7 @@ def build_sam2_video_predictor(
     cfg.model.image_size = image_size
     OmegaConf.resolve(cfg)
     model = instantiate(cfg.model, _recursive_=True)
+    model.calibration = calibration
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":
@@ -162,6 +164,10 @@ def _load_checkpoint(model, ckpt_path):
     if ckpt_path is not None:
         sd = torch.load(ckpt_path, map_location="cpu", weights_only=True)["model"]
         missing_keys, unexpected_keys = model.load_state_dict(sd)
+        for name, module in model.named_modules():
+            from sam2.modeling.sam2_utils import LayerNorm2dWithNN, LayerNorm2dWithNN3Dim
+            if isinstance(module, LayerNorm2dWithNN) or isinstance(module, LayerNorm2dWithNN3Dim):
+                module.load_weights_from_old_model()
         if missing_keys:
             logging.error(missing_keys)
             raise RuntimeError()

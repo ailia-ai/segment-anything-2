@@ -35,12 +35,36 @@ python3 export_image_predictor.py --framework onnx
 python3 export_video_predictor.py --framework onnx
 ```
 
-tflite
+tflite (float)
 
 ```
 export PJRT_DEVICE=CPU
 python3 export_image_predictor.py --framework tflite
 python3 export_video_predictor.py --framework tflite
+```
+
+generate calibration data
+
+```
+export PJRT_DEVICE=CPU
+python3 export_image_predictor.py --accuracy int8 --image_size 512 --mode calibration
+python3 export_video_predictor.py --accuracy int8 --image_size 512 --mode calibration
+```
+
+tflite (int8)
+
+```
+export PJRT_DEVICE=CPU
+python3 export_image_predictor.py --framework tflite --accuracy int8 --image_size 512
+python3 export_video_predictor.py --framework tflite --accuracy int8 --image_size 512
+```
+
+tflite (mixed)
+
+```
+export PJRT_DEVICE=CPU
+python3 export_image_predictor.py --framework tflite --accuracy mixed --image_size 512
+python3 export_video_predictor.py --framework tflite --accuracy mixed --image_size 512
 ```
 
 ## Inference only
@@ -53,12 +77,28 @@ python3 export_image_predictor.py --framework onnx --mode import
 python3 export_video_predictor.py --framework onnx --mode import
 ```
 
-tflite
+tflite (float)
 
 ```
 download_tflite_models.sh
 python3 export_image_predictor.py --framework tflite --mode import
 python3 export_video_predictor.py --framework tflite --mode import
+```
+
+tflite (int8)
+
+```
+download_tflite_models.sh
+python3 export_image_predictor.py --framework tflite --mode import --accuracy int8 --image_size 512
+python3 export_video_predictor.py --framework tflite --mode import --accuracy int8 --image_size 512
+```
+
+tflite (mixed)
+
+```
+download_tflite_models.sh
+python3 export_image_predictor.py --framework tflite --mode import --accuracy mixed --image_size 512
+python3 export_video_predictor.py --framework tflite --mode import --accuracy mixed --image_size 512
 ```
 
 ailia_tflite
@@ -105,6 +145,8 @@ You can also download it from the following.
 
 ### TFLITE
 
+#### Float
+
 - https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/image_encoder_hiera_t_2.1.tflite
 - https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/prompt_encoder_hiera_t_2.1.tflite
 - https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/mask_decoder_hiera_t_2.1.tflite
@@ -112,6 +154,22 @@ You can also download it from the following.
 - https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/memory_encoder_hiera_t_2.1.tflite
 - https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/memory_attention_hiera_t_2.1.tflite (4dim matmul, batch = 1, num_maskmem = 8)
 - https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/obj_ptr_tpos_proj_hiera_t_2.1.tflite
+
+#### Int8 (tensorflow quantization)
+
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/image_encoder_hiera_t_2.1_512.int8.tflite
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/prompt_encoder_hiera_t_2.1_512.int8.tflite
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/mask_decoder_hiera_t_2.1_512.int8.tflite
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/mlp_hiera_t_2.1_512.int8.tflite
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/memory_encoder_hiera_t_2.1_512.int8.tflite
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/memory_attention_hiera_t_2.1_512.int8.tflite (4dim matmul, batch = 1, num_maskmem = 8)
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/obj_ptr_tpos_proj_hiera_t_2.1_512.int8.tflite
+
+#### Mixed (torch quantization)
+
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/image_encoder_hiera_t_2.1_512.mixed.tflite
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/mask_decoder_hiera_t_2.1_512.mixed.tflite
+- https://storage.googleapis.com/ailia-models-tflite/segment-anything-2.1/memory_attention_hiera_t_2.1_512.mixed.tflite (4dim matmul, batch = 1, num_maskmem = 8)
 
 ## Inference Example
 

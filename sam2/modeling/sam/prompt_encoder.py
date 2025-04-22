@@ -11,7 +11,7 @@ from torch import nn
 
 from sam2.modeling.position_encoding import PositionEmbeddingRandom
 
-from sam2.modeling.sam2_utils import LayerNorm2d
+from sam2.modeling.sam2_utils import LayerNorm2d, LayerNorm2dWithNN3Dim
 
 
 class PromptEncoder(nn.Module):
@@ -56,14 +56,18 @@ class PromptEncoder(nn.Module):
         )
         self.mask_downscaling = nn.Sequential(
             nn.Conv2d(1, mask_in_chans // 4, kernel_size=2, stride=2),
-            LayerNorm2d(mask_in_chans // 4),
+            LayerNorm2dWithNN3Dim(mask_in_chans // 4),
             activation(),
             nn.Conv2d(mask_in_chans // 4, mask_in_chans, kernel_size=2, stride=2),
-            LayerNorm2d(mask_in_chans),
+            LayerNorm2dWithNN3Dim(mask_in_chans),
             activation(),
             nn.Conv2d(mask_in_chans, embed_dim, kernel_size=1),
         )
         self.no_mask_embed = nn.Embedding(1, embed_dim)
+        self.dense_pe = None
+    
+    def generate_dense_pe(self):
+        self.dense_pe = self.pe_layer(self.image_embedding_size).unsqueeze(0) # constantにする
 
     def get_dense_pe(self) -> torch.Tensor:
         """
@@ -74,7 +78,8 @@ class PromptEncoder(nn.Module):
           torch.Tensor: Positional encoding with shape
             1x(embed_dim)x(embedding_h)x(embedding_w)
         """
-        return self.pe_layer(self.image_embedding_size).unsqueeze(0)
+        #assert(self.dense_pe != None)
+        return self.dense_pe
 
     def _embed_points(
         self,

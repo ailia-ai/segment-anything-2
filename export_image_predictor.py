@@ -5,8 +5,8 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--model_id', default="hiera_t", choices=["hiera_l", "hiera_b+", "hiera_s", "hiera_t"])
 parser.add_argument('--framework', default="onnx", choices=["onnx", "tflite", "torch", "ailia_tflite"])
-parser.add_argument('--accuracy', default="float", choices=["float", "int8"])
-parser.add_argument('--mode', default="both", choices=["both", "import", "export"])
+parser.add_argument('--accuracy', default="float", choices=["float", "int8", "mixed"])
+parser.add_argument('--mode', default="both", choices=["both", "import", "export", "calibration"])
 parser.add_argument('--image_size', default=1024, type=int, choices=[512, 1024])
 parser.add_argument('--version', default="2.1", choices=["2", "2.1"])
 args = parser.parse_args()
@@ -33,10 +33,12 @@ export_to_tflite_image_encoder = args.framework == "tflite" and (args.mode=="exp
 export_to_tflite_mask_decoder = args.framework == "tflite" and (args.mode=="export" or args.mode=="both")
 import_from_tflite = (args.framework == "tflite" or args.framework == "ailia_tflite") and (args.mode=="import" or args.mode=="both")
 
+calibration = args.mode == "calibration"
+
 if args.framework=="ailia_tflite" and import_from_tflite:
     import_from_tflite = "ailia_tflite"
 
-tflite_int8 = args.accuracy == "int8"
+tflite_int8 = False if args.accuracy == "float" else args.accuracy
 
 # export PJRT_DEVICE=CPU
 
@@ -97,7 +99,7 @@ def show_box(box, ax):
     w, h = box[2] - box[0], box[3] - box[1]
     ax.add_patch(plt.Rectangle((x0, y0), w, h, edgecolor='green', facecolor=(0, 0, 0, 0), lw=2))    
 
-def show_masks(image, masks, scores, point_coords=None, box_coords=None, input_labels=None, borders=True, model_id=model_id):
+def show_masks(output_path, image, masks, scores, point_coords=None, box_coords=None, input_labels=None, borders=True, model_id=model_id):
     for i, (mask, score) in enumerate(zip(masks, scores)):
         plt.figure(figsize=(10, 10))
         plt.imshow(image)
@@ -112,40 +114,62 @@ def show_masks(image, masks, scores, point_coords=None, box_coords=None, input_l
             plt.title(f"Mask {i+1}, Score: {score:.3f}", fontsize=18)
         plt.axis('off')
         #plt.show()
-        plt.savefig(f'output/output{i+1}_'+model_id+'.png')
+        plt.savefig(f'{output_path}{i+1}_'+model_id+'.'+args.accuracy+'.png')
 
 # logic
-image = Image.open('notebooks/images/truck.jpg')
-image = np.array(image.convert("RGB"))
-
 sam2_model = build_sam2(model_cfg, sam2_checkpoint, device=device, image_size=args.image_size)
 
-predictor = SAM2ImagePredictor(sam2_model)
+predictor = SAM2ImagePredictor(sam2_model, calibration=calibration)
 
-predictor.set_image(image, export_to_onnx = export_to_onnx_image_encoder,
-                    export_to_tflite = export_to_tflite_image_encoder,
-                    import_from_onnx = import_from_onnx, import_from_tflite = import_from_tflite,
-                    tflite_int8 = tflite_int8, model_id = model_id)
+images = ['notebooks/images/truck.jpg']
+if calibration:
+    import glob
+    #images = glob.glob("./calibration/images/*.jpg")
+    images = glob.glob("./calibration/images_large/*.jpg")
+    if len(images) == 0:
+        raise Exception("Calibration image not found. Please put images to ./calibration/images/")
 
-input_point = np.array([[500, 375]])
-input_label = np.array([1])
+calibration_random = np.random.default_rng(1234)
 
-masks, scores, logits = predictor.predict(
-    point_coords=input_point,
-    point_labels=input_label,
-    multimask_output=True,
-    export_to_onnx=export_to_onnx_mask_decoder,
-    export_to_tflite=export_to_tflite_mask_decoder,
-    import_from_onnx=import_from_onnx,
-    import_from_tflite=import_from_tflite,
-    tflite_int8=tflite_int8,
-    model_id=model_id
-)
-sorted_ind = np.argsort(scores)[::-1]
-masks = masks[sorted_ind]
-scores = scores[sorted_ind]
-logits = logits[sorted_ind]
+for image_path in images:
+    print(image_path)
 
-show_masks(image, masks, scores, point_coords=input_point, input_labels=input_label, borders=True, model_id=model_id)
+    image = Image.open(image_path)
+    image = np.array(image.convert("RGB"))
+
+    predictor.set_image(image, export_to_onnx = export_to_onnx_image_encoder,
+                        export_to_tflite = export_to_tflite_image_encoder,
+                        import_from_onnx = import_from_onnx, import_from_tflite = import_from_tflite,
+                        tflite_int8 = tflite_int8, model_id = model_id)
+
+    input_point = np.array([[500, 375]])
+    input_label = np.array([1])
+
+    if calibration:
+        x = calibration_random.random()
+        y = calibration_random.random()
+        input_point = np.array([[int(image.shape[1] * x), int(image.shape[0] * y)]])
+
+    masks, scores, logits = predictor.predict(
+        point_coords=input_point,
+        point_labels=input_label,
+        multimask_output=True,
+        export_to_onnx=export_to_onnx_mask_decoder,
+        export_to_tflite=export_to_tflite_mask_decoder,
+        import_from_onnx=import_from_onnx,
+        import_from_tflite=import_from_tflite,
+        tflite_int8=tflite_int8,
+        model_id=model_id
+    )
+    sorted_ind = np.argsort(scores)[::-1]
+    masks = masks[sorted_ind]
+    scores = scores[sorted_ind]
+    logits = logits[sorted_ind]
+
+    output_path = "output/output"
+    if calibration:
+        os.makedirs("./calibration/output", exist_ok=True)
+        output_path = "./calibration/output/" + os.path.basename(image_path)
+    show_masks(output_path, image, masks, scores, point_coords=input_point, input_labels=input_label, borders=True, model_id=model_id)
 
 print("Success!")
