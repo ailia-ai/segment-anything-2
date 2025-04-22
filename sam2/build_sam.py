@@ -168,6 +168,9 @@ def _load_checkpoint(model, ckpt_path):
             from sam2.modeling.sam2_utils import LayerNorm2dWithNN, LayerNorm2dWithNN3Dim
             if isinstance(module, LayerNorm2dWithNN) or isinstance(module, LayerNorm2dWithNN3Dim):
                 module.load_weights_from_old_model()
+            from sam2.modeling.backbones.hieradet import MultiScaleAttention
+            if isinstance(module, MultiScaleAttention):
+                module.load_weights_from_old_model()
         if missing_keys:
             logging.error(missing_keys)
             raise RuntimeError()

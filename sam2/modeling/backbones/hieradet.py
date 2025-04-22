@@ -53,12 +53,41 @@ class MultiScaleAttention(nn.Module):
         self.qkv = nn.Linear(dim, dim_out * 3)
         self.proj = nn.Linear(dim_out, dim_out)
 
+        self.q_linear = None
+        self.k_linear = None
+        self.v_linear = None
+
+    def load_weights_from_old_model(self):
+        qkv_weights = self.qkv.weight.data
+        q_weights, k_weights, v_weights = torch.chunk(qkv_weights, 3, dim=0)
+
+        self.q_linear = nn.Linear(self.dim, self.dim_out, bias=self.qkv.bias is not None)
+        self.k_linear = nn.Linear(self.dim, self.dim_out, bias=self.qkv.bias is not None)
+        self.v_linear = nn.Linear(self.dim, self.dim_out, bias=self.qkv.bias is not None)
+
+        from copy import deepcopy
+        self.q_linear.weight.data = deepcopy(q_weights)
+        self.k_linear.weight.data = deepcopy(k_weights)
+        self.v_linear.weight.data = deepcopy(v_weights)
+
+        if self.qkv.bias is not None:
+            qkv_bias = self.qkv.bias.data
+            q_bias, k_bias, v_bias = torch.chunk(qkv_bias, 3, dim=0)
+            self.q_linear.bias.data = deepcopy(q_bias)
+            self.k_linear.bias.data = deepcopy(k_bias)
+            self.v_linear.bias.data = deepcopy(v_bias)
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, H, W, _ = x.shape
-        # qkv with shape (B, H * W, 3, nHead, C)
-        qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1)
-        # q, k, v with shape (B, H * W, nheads, C)
-        q, k, v = torch.unbind(qkv, 2)
+        if False:
+            # qkv with shape (B, H * W, 3, nHead, C)
+            qkv = self.qkv(x).reshape(B, H * W, 3, self.num_heads, -1)
+            # q, k, v with shape (B, H * W, nheads, C)
+            q, k, v = torch.unbind(qkv, 2)
+        else:
+            q = self.q_linear(x).reshape(B, H * W, self.num_heads, -1)
+            k = self.k_linear(x).reshape(B, H * W, self.num_heads, -1)
+            v = self.v_linear(x).reshape(B, H * W, self.num_heads, -1)
 
         # Q pooling (for downsample at stage changes)
         if self.q_pool:
