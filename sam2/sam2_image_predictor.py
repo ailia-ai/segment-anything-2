@@ -959,7 +959,6 @@ class SAM2ImagePredictor:
                             super().annotate(model)
 
                             for n in model.graph.nodes:
-                                if n.target in [torch.ops.aten.conv_transpose2d.input]:
                                 if n.target in [torch.ops.aten.conv_transpose2d.input, torch.ops.aten.linear.default]:
                                     input_qspec_map = {}
 
