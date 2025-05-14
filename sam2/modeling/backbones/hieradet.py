@@ -56,6 +56,15 @@ class MultiScaleAttention(nn.Module):
         self.q_linear = None
         self.k_linear = None
         self.v_linear = None
+        self.scale = torch.sqrt(1 / torch.sqrt(torch.tensor(dim, dtype=torch.float32)))
+
+    def scaled_dot_product_attention(self, q, k, v):
+        q = q * self.scale
+        k = k * self.scale
+        scores = torch.matmul(q, k.transpose(-2, -1))
+        attn_weights = torch.nn.functional.softmax(scores, dim=-1)
+        output = torch.matmul(attn_weights, v)
+        return output
 
     def load_weights_from_old_model(self):
         qkv_weights = self.qkv.weight.data
@@ -96,7 +105,7 @@ class MultiScaleAttention(nn.Module):
             q = q.reshape(B, H * W, self.num_heads, -1)
 
         # Torch's SDPA expects [B, nheads, H*W, C] so we transpose
-        x = F.scaled_dot_product_attention(
+        x = self.scaled_dot_product_attention(
             q.transpose(1, 2),
             k.transpose(1, 2),
             v.transpose(1, 2),

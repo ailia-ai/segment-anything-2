@@ -18,6 +18,13 @@ from sam2.modeling.sam2_base import SAM2Base
 
 from sam2.utils.transforms import SAM2Transforms
 
+from ai_edge_torch.quantize import pt2e_quantizer
+from ai_edge_torch.quantize import quant_config
+from torch.ao.quantization import quantize_pt2e
+from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_output_act_qspec, get_fixed_qparams_qspec
+from torch.ao.quantization.quantizer import QuantizationAnnotation
+from torch.ao.quantization.quantizer import QuantizationSpec, SharedQuantizationSpec
+from torch.ao.quantization.observer import PlaceholderObserver, HistogramObserver
 
 class SAM2ImagePredictor:
     def __init__(
@@ -210,8 +217,64 @@ class SAM2ImagePredictor:
                     from ai_edge_torch.quantize import quant_config
                     from torch.ao.quantization import quantize_pt2e
 
-                    quantizer = pt2e_quantizer.PT2EQuantizer().set_global(
-                        pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
+                    quantization_config = pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
+
+                    class PT2EQuantizerForImageEncoder(pt2e_quantizer.PT2EQuantizer):
+                        def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
+                            super().annotate(model)
+
+                            # zero_point = 0
+                            input_qspec = QuantizationSpec(
+                                dtype=torch.int8,
+                                quant_min=-128,
+                                quant_max=127,
+                                qscheme=torch.per_tensor_symmetric, # per_tensor_affine
+                                observer_or_fake_quant_ctr=HistogramObserver.with_args(
+                                    reduce_range=True,
+                                    quant_min=-128,
+                                    quant_max=127
+                                )
+                            )
+                            output_qspec = input_qspec
+
+                            # zero_point != 0
+                            #input_qspec = get_input_act_qspec(self.quantizer_config)
+                            #output_qspec = get_output_act_qspec(self.quantizer_config)
+
+                            for n in model.graph.nodes:
+                                if n.target == torch.ops.aten.softmax.int:
+                                    input_qspec_map = {}
+                                    input_qspec_map[n.args[0]] = input_qspec
+                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                        input_qspec_map=input_qspec_map,
+                                        output_qspec=get_fixed_qparams_qspec(quantization_config),
+                                        _annotated=True,
+                                    )
+
+                                if n.target == torch.ops.aten.matmul.default:
+                                    input_qspec_map = {}
+                                    input_qspec_map[n.args[0]] = input_qspec
+                                    input_qspec_map[n.args[1]] = input_qspec
+
+                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                        input_qspec_map=input_qspec_map,
+                                        output_qspec=output_qspec,
+                                        _annotated=True,
+                                    )
+
+                                if n.target == torch.ops.aten.reshape.default:
+                                    input_qspec_map = {}
+                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+
+                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                        input_qspec_map=input_qspec_map,
+                                        output_qspec=get_output_act_qspec(quantization_config),
+                                        _annotated=True,
+                                    )
+                            return model
+
+                    quantizer = PT2EQuantizerForImageEncoder().set_global(
+                        quantization_config
                     )
                     model = torch._export.capture_pre_autograd_graph(self.model, sample_inputs)
                     model = quantize_pt2e.prepare_pt2e(model, quantizer)
