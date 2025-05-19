@@ -21,7 +21,7 @@ from sam2.utils.transforms import SAM2Transforms
 from ai_edge_torch.quantize import pt2e_quantizer
 from ai_edge_torch.quantize import quant_config
 from torch.ao.quantization import quantize_pt2e
-from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_output_act_qspec, get_fixed_qparams_qspec
+from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_output_act_qspec, get_fixed_qparams_qspec, get_weight_qspec, get_bias_qspec
 from torch.ao.quantization.quantizer import QuantizationAnnotation
 from torch.ao.quantization.quantizer import QuantizationSpec, SharedQuantizationSpec
 from torch.ao.quantization.observer import PlaceholderObserver, HistogramObserver
@@ -242,10 +242,10 @@ class SAM2ImagePredictor:
                             #output_qspec = get_output_act_qspec(self.quantizer_config)
 
                             for n in model.graph.nodes:
-                                print(n.target, n.meta, "nn_module_stack" in n.meta, "nn_module_stack" in n.meta and "MultiScaleAttention" in str(n.meta["nn_module_stack"]))
+                                #print(n.target, n.meta, "nn_module_stack" in n.meta, "nn_module_stack" in n.meta and "MultiScaleAttention" in str(n.meta["nn_module_stack"]))
                                 
                                 if "nn_module_stack" in n.meta and "MultiScaleAttention" in str(n.meta["nn_module_stack"]):
-                                    print("converted")
+                                    #print("converted")
 
                                     if n.target == torch.ops.aten.mul.Tensor:
                                         input_qspec_map = {}
@@ -279,6 +279,8 @@ class SAM2ImagePredictor:
                                     if n.target == torch.ops.aten.linear.default:
                                         input_qspec_map = {}
                                         input_qspec_map[n.args[0]] = input_qspec
+                                        input_qspec_map[n.args[1]] = get_weight_qspec(quantization_config)
+                                        input_qspec_map[n.args[2]] = get_bias_qspec(quantization_config)
 
                                         n.meta["quantization_annotation"] = QuantizationAnnotation(
                                             input_qspec_map=input_qspec_map,
@@ -286,13 +288,13 @@ class SAM2ImagePredictor:
                                             _annotated=True,
                                         )
 
-                                    if n.target == torch.ops.aten.reshape.default:
+                                    if n.target == torch.ops.aten.reshape.default: # softmaxの出力には来ない
                                         input_qspec_map = {}
-                                        input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                        input_qspec_map[n.args[0]] = input_qspec
 
                                         n.meta["quantization_annotation"] = QuantizationAnnotation(
                                             input_qspec_map=input_qspec_map,
-                                            output_qspec=get_output_act_qspec(quantization_config),
+                                            output_qspec=output_qspec,
                                             _annotated=True,
                                         )
                             return model
