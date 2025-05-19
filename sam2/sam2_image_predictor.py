@@ -242,35 +242,59 @@ class SAM2ImagePredictor:
                             #output_qspec = get_output_act_qspec(self.quantizer_config)
 
                             for n in model.graph.nodes:
-                                if n.target == torch.ops.aten.softmax.int:
-                                    input_qspec_map = {}
-                                    input_qspec_map[n.args[0]] = input_qspec
-                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
-                                        input_qspec_map=input_qspec_map,
-                                        output_qspec=get_fixed_qparams_qspec(quantization_config),
-                                        _annotated=True,
-                                    )
+                                print(n.target, n.meta, "nn_module_stack" in n.meta, "nn_module_stack" in n.meta and "MultiScaleAttention" in str(n.meta["nn_module_stack"]))
+                                
+                                if "nn_module_stack" in n.meta and "MultiScaleAttention" in str(n.meta["nn_module_stack"]):
+                                    print("converted")
 
-                                if n.target == torch.ops.aten.matmul.default:
-                                    input_qspec_map = {}
-                                    input_qspec_map[n.args[0]] = input_qspec
-                                    input_qspec_map[n.args[1]] = input_qspec
+                                    if n.target == torch.ops.aten.mul.Tensor:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=output_qspec,
+                                            _annotated=True,
+                                        )
 
-                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
-                                        input_qspec_map=input_qspec_map,
-                                        output_qspec=output_qspec,
-                                        _annotated=True,
-                                    )
+                                    if n.target == torch.ops.aten.softmax.int:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=get_fixed_qparams_qspec(quantization_config),
+                                            _annotated=True,
+                                        )
 
-                                if n.target == torch.ops.aten.reshape.default:
-                                    input_qspec_map = {}
-                                    input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+                                    if n.target == torch.ops.aten.matmul.default:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+                                        input_qspec_map[n.args[1]] = input_qspec
 
-                                    n.meta["quantization_annotation"] = QuantizationAnnotation(
-                                        input_qspec_map=input_qspec_map,
-                                        output_qspec=get_output_act_qspec(quantization_config),
-                                        _annotated=True,
-                                    )
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=output_qspec,
+                                            _annotated=True,
+                                        )
+
+                                    if n.target == torch.ops.aten.linear.default:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=output_qspec,
+                                            _annotated=True,
+                                        )
+
+                                    if n.target == torch.ops.aten.reshape.default:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = get_input_act_qspec(quantization_config)
+
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=get_output_act_qspec(quantization_config),
+                                            _annotated=True,
+                                        )
                             return model
 
                     quantizer = PT2EQuantizerForImageEncoder().set_global(
