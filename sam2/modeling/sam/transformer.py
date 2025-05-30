@@ -356,6 +356,28 @@ class RoPEAttention(Attention):
             freqs_cis = self.compute_cis(end_x=feat_sizes[0], end_y=feat_sizes[1])
             self.freqs_cis = freqs_cis
 
+        self.scale = torch.sqrt(1 / torch.sqrt(torch.tensor(self.internal_dim, dtype=torch.float32)))
+
+    def scaled_dot_product_attention(self, q, k, v):
+        q = q * self.scale
+        k = k * self.scale
+        scores = torch.matmul(q, k.transpose(-2, -1))
+        attn_weights = torch.nn.functional.softmax(scores, dim=-1)
+        output = torch.matmul(attn_weights, v)
+        return output
+
+    def scaled_dot_product_attention_with_attn_mask(self, q, k, v, m):
+        q = q * self.scale
+        k = k * self.scale
+        scores = torch.matmul(q, k.transpose(-2, -1))
+        L, S = q.size(-2), k.size(-2)
+        attn_bias = torch.zeros(L, S, dtype=q.dtype, device=q.device)
+        attn_bias.masked_fill_(m.logical_not(), float("-inf"))
+        scores += attn_bias
+        attn_weights = torch.nn.functional.softmax(scores, dim=-1)
+        output = torch.matmul(attn_weights, v)
+        return output
+
     def allocate_rope_attention_weight(
         self, q: Tensor, image_size
     ):
@@ -434,7 +456,8 @@ class RoPEAttention(Attention):
             #)
             global ALLOW_ALL_KERNELS
             ALLOW_ALL_KERNELS = True
-            out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+            #out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
+            out = self.scaled_dot_product_attention(q, k, v)
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)
@@ -522,7 +545,8 @@ class RoPEAttention(Attention):
             #)
             global ALLOW_ALL_KERNELS
             ALLOW_ALL_KERNELS = True
-            out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, attn_mask = attn_mask)
+            #out = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p, attn_mask = attn_mask)
+            out = self.scaled_dot_product_attention_with_attn_mask(q, k, v, attn_mask)
 
         out = self._recombine_heads(out)
         out = self.out_proj(out)

@@ -1343,8 +1343,10 @@ class SAM2Base(torch.nn.Module):
                     from torch.ao.quantization import quantize_pt2e
 
                     # quantize transpose_conv
-                    from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_weight_qspec, get_bias_qspec, get_output_act_qspec
+                    from ai_edge_torch.quantize.pt2e_quantizer_utils import get_input_act_qspec, get_output_act_qspec, get_fixed_qparams_qspec, get_weight_qspec, get_bias_qspec
                     from torch.ao.quantization.quantizer import QuantizationAnnotation
+                    from torch.ao.quantization.quantizer import QuantizationSpec, SharedQuantizationSpec
+                    from torch.ao.quantization.observer import PlaceholderObserver, HistogramObserver
 
                     quantization_config = pt2e_quantizer.get_symmetric_quantization_config(is_dynamic=False, is_per_channel=True)
 
@@ -1352,6 +1354,78 @@ class SAM2Base(torch.nn.Module):
                         def annotate(self, model: torch.fx.GraphModule) -> torch.fx.GraphModule:
                             super().annotate(model)
 
+                            # Attention Annotation
+                            input_qspec = QuantizationSpec(
+                                dtype=torch.int8,
+                                quant_min=-128,
+                                quant_max=127,
+                                qscheme=torch.per_tensor_symmetric, # per_tensor_affine
+                                observer_or_fake_quant_ctr=HistogramObserver.with_args(
+                                    reduce_range=True,
+                                    quant_min=-128,
+                                    quant_max=127
+                                )
+                            )
+                            output_qspec = input_qspec
+
+                            for n in model.graph.nodes:
+                                print(n.target, n.meta, "nn_module_stack" in n.meta, "nn_module_stack" in n.meta and "MemoryAttentionLayer" in str(n.meta["nn_module_stack"]))
+                                
+                                if "nn_module_stack" in n.meta and "MemoryAttentionLayer" in str(n.meta["nn_module_stack"]):
+                                    print("converted")
+
+                                    if n.target == torch.ops.aten.mul.Tensor:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=output_qspec,
+                                            _annotated=True,
+                                        )
+
+                                    if n.target == torch.ops.aten.softmax.int:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=get_fixed_qparams_qspec(quantization_config),
+                                            _annotated=True,
+                                        )
+
+                                    if n.target == torch.ops.aten.matmul.default:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+                                        input_qspec_map[n.args[1]] = input_qspec
+
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=output_qspec,
+                                            _annotated=True,
+                                        )
+
+                                    if n.target == torch.ops.aten.linear.default:
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+                                        input_qspec_map[n.args[1]] = get_weight_qspec(quantization_config)
+                                        input_qspec_map[n.args[2]] = get_bias_qspec(quantization_config)
+
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=output_qspec,
+                                            _annotated=True,
+                                        )
+
+                                    if n.target == torch.ops.aten.reshape.default: # softmaxの出力には来ない
+                                        input_qspec_map = {}
+                                        input_qspec_map[n.args[0]] = input_qspec
+
+                                        n.meta["quantization_annotation"] = QuantizationAnnotation(
+                                            input_qspec_map=input_qspec_map,
+                                            output_qspec=output_qspec,
+                                            _annotated=True,
+                                        )
+                        
+                            # Output Annotation
                             target_node = None
                             for n in model.graph.nodes:
                                 if str(n.target) == "output":
