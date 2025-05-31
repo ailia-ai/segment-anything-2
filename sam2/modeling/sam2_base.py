@@ -1369,9 +1369,9 @@ class SAM2Base(torch.nn.Module):
                             output_qspec = input_qspec
 
                             for n in model.graph.nodes:
-                                print(n.target, n.meta, "nn_module_stack" in n.meta, "nn_module_stack" in n.meta and "MemoryAttentionLayer" in str(n.meta["nn_module_stack"]))
+                                print(n.target, n.meta, "stack_trace" in n.meta, "stack_trace" in n.meta and "scaled_dot_product_attention" in str(n.meta["stack_trace"]))
                                 
-                                if "nn_module_stack" in n.meta and "MemoryAttentionLayer" in str(n.meta["nn_module_stack"]):
+                                if "stack_trace" in n.meta and "scaled_dot_product_attention" in str(n.meta["stack_trace"]):
                                     print("converted")
 
                                     if n.target == torch.ops.aten.mul.Tensor:
