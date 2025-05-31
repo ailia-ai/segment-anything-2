@@ -372,8 +372,12 @@ class RoPEAttention(Attention):
         scores = torch.matmul(q, k.transpose(-2, -1))
         L, S = q.size(-2), k.size(-2)
         attn_bias = torch.zeros(L, S, dtype=q.dtype, device=q.device)
-        attn_bias = torch.where(m, attn_bias, float("-inf"))
-        scores += attn_bias
+        
+        #attn_bias = torch.where(m, attn_bias, float("-inf"))
+        #scores += attn_bias
+
+        scores = torch.where(m, scores, attn_bias)
+        
         attn_weights = torch.nn.functional.softmax(scores, dim=-1)
         output = torch.matmul(attn_weights, v)
         return output
