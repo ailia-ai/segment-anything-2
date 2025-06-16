@@ -56,7 +56,7 @@ class MultiScaleAttention(nn.Module):
         self.q_linear = None
         self.k_linear = None
         self.v_linear = None
-        self.scale = torch.sqrt(1 / torch.sqrt(torch.tensor(dim, dtype=torch.float32)))
+        self.scale = torch.sqrt(1 / torch.sqrt(torch.tensor(dim / num_heads, dtype=torch.float32)))
 
     def scaled_dot_product_attention(self, q, k, v):
         q = q * self.scale

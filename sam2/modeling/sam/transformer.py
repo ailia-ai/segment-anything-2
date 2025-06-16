@@ -356,7 +356,7 @@ class RoPEAttention(Attention):
             freqs_cis = self.compute_cis(end_x=feat_sizes[0], end_y=feat_sizes[1])
             self.freqs_cis = freqs_cis
 
-        self.scale = torch.sqrt(1 / torch.sqrt(torch.tensor(self.internal_dim, dtype=torch.float32)))
+        self.scale = torch.sqrt(1 / torch.sqrt(torch.tensor(self.internal_dim // self.num_heads, dtype=torch.float32)))
 
     def scaled_dot_product_attention(self, q, k, v):
         q = q * self.scale
