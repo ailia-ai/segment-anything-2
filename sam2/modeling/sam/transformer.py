@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from torch import nn, Tensor
 
 from sam2.modeling.position_encoding import apply_rotary_enc, compute_axial_cis
-from sam2.modeling.position_encoding import apply_rotary_matenc, get_rotation_matrices, apply_rotary_matenc_512
+from sam2.modeling.position_encoding import apply_rotary_matenc, get_rotation_matrices, apply_rotary_matenc_512, apply_rotary_matenc_4d, apply_rotary_matenc_512_4d
 from sam2.modeling.sam2_utils import MLP
 from sam2.utils.misc import get_sdpa_settings
 

@@ -243,59 +243,51 @@ def get_rotation_matrices(dim, end_x, end_y, theta=10000.0, device=None, dtype=N
 
 
 def apply_rotary_matenc(xq, xk, rotmats, repeat_freqs_k=False):
-    # オリジナル実装 (6次元テンソル処理)
-    #bq, hq, nq, cq = xq.shape
-    #bk, hk, nk, ck = xk.shape
-    #q_out = torch.matmul(rotmats, xq.reshape(bq, hq, nq, cq // 2, 2, 1)).flatten(3)
-    #k_rotmat = rotmats.repeat(1, 1, nk // nq, 1, 1, 1) if repeat_freqs_k else rotmats
-    #k_out = torch.matmul(k_rotmat, xk.reshape(bk, hk, nk, ck // 2, 2, 1)).flatten(3)
-
-    # tfliteでは4次元テンソルまでしか扱えないのでバッチサイズに制約をかける
-
+    # 6次元テンソル処理 (バッチ次元を動的にサポート)
     bq, hq, nq, cq = xq.shape
-    #torch._check_is_size(bq)
-    #torch._check_is_size(hq)
-    #torch._check_is_size(nq)
-    #torch._check_is_size(cq)
-    #torch._check(bq == 1) # for dynamo trace
-    #torch._check(hq == 1) # for dynamo trace
-    #torch._check(cq == 256) # for dynamo trace
+    bk, hk, nk, ck = xk.shape
+    q_out = torch.matmul(rotmats, xq.reshape(bq, hq, nq, cq // 2, 2, 1)).flatten(3)
+    k_rotmat = rotmats.repeat(1, 1, nk // nq, 1, 1, 1) if repeat_freqs_k else rotmats
+    k_out = torch.matmul(k_rotmat, xk.reshape(bk, hk, nk, ck // 2, 2, 1)).flatten(3)
+    return q_out, k_out
 
-    #print(rotmats.shape)
+
+def apply_rotary_matenc_4d(xq, xk, rotmats, repeat_freqs_k=False):
+    # tfliteでは4次元テンソルまでしか扱えないのでバッチサイズに制約をかける
+    bq, hq, nq, cq = xq.shape
 
     q_rotmat = rotmats.reshape(4096, 128, 2, 2)
     q_out = torch.matmul(q_rotmat, xq.reshape(nq, 128, 2, 1)).reshape(1, 1, 4096, 256)
-    #print(q_out.shape)
 
     bk, hk, nk, ck = xk.shape
-    k_rotmat = q_rotmat.repeat(nk // 4096, 1, 1, 1)# if repeat_freqs_k else rotmats # for tflite trace, repeat_freqs_k == Falseの場合は nk // nq == 1 なのでrepeatを常に呼び出しても等価になる
+    k_rotmat = q_rotmat.repeat(nk // 4096, 1, 1, 1)
 
     bk, hk, nk, ck = xk.shape
-    #torch._check_is_size(bq == 1)
-    #torch._check_is_size(hq == 1)
-    #torch._check(ck == 256)
-
-    #torch._check(xk.size(3) == 256)
-    
     k_in = xk.reshape(nk, 128, 2, 1)
-    #k_in = k_in[:k_rotmat.shape[0], :, :, :]
     k_out = torch.matmul(k_rotmat, k_in).reshape(1, 1, nk, 256)
-
-    #print("k_rotmat", k_rotmat.shape)
-    #print("k_in", k_in.shape)
-    #print("k_out", k_out.shape)
 
     return q_out, k_out
 
 
 def apply_rotary_matenc_512(xq, xk, rotmats, repeat_freqs_k=False):
+    # 6次元テンソル処理 (バッチ次元を動的にサポート)
+    bq, hq, nq, cq = xq.shape
+    bk, hk, nk, ck = xk.shape
+    q_out = torch.matmul(rotmats, xq.reshape(bq, hq, nq, cq // 2, 2, 1)).flatten(3)
+    k_rotmat = rotmats.repeat(1, 1, nk // nq, 1, 1, 1) if repeat_freqs_k else rotmats
+    k_out = torch.matmul(k_rotmat, xk.reshape(bk, hk, nk, ck // 2, 2, 1)).flatten(3)
+    return q_out, k_out
+
+
+def apply_rotary_matenc_512_4d(xq, xk, rotmats, repeat_freqs_k=False):
+    # tfliteでは4次元テンソルまでしか扱えないのでバッチサイズに制約をかける
     bq, hq, nq, cq = xq.shape
     q_rotmat = rotmats.reshape(1024, 128, 2, 2)
     q_out = torch.matmul(q_rotmat, xq.reshape(nq, 128, 2, 1)).reshape(1, 1, 1024, 256)
 
     bk, hk, nk, ck = xk.shape
     k_rotmat = q_rotmat.repeat(nk // 1024, 1, 1, 1)
-    
+
     bk, hk, nk, ck = xk.shape
     k_in = xk.reshape(nk, 128, 2, 1)
     k_out = torch.matmul(k_rotmat, k_in).reshape(1, 1, nk, 256)

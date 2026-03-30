@@ -419,7 +419,7 @@ class SAM2Base(torch.nn.Module):
 
         if sam_mask_prompt is None:
             import numpy as np
-            mask_input_dummy = torch.Tensor(np.zeros((1, self.image_size // 4, self.image_size // 4)))
+            mask_input_dummy = torch.Tensor(np.zeros((1, 1, self.image_size // 4, self.image_size // 4)))
             masks_enable = torch.tensor([0], dtype=torch.int)
         else:
             mask_input_dummy = sam_mask_prompt
@@ -547,7 +547,7 @@ class SAM2Base(torch.nn.Module):
                 print("backbone_features", backbone_features.shape)
             if sam_mask_prompt is None:
                 import numpy as np
-                mask_input_dummy = torch.Tensor(np.zeros((1, self.image_size // 4, self.image_size // 4)))
+                mask_input_dummy = torch.Tensor(np.zeros((1, 1, self.image_size // 4, self.image_size // 4)))
                 masks_enable = torch.tensor([0], dtype=torch.int)
             else:
                 mask_input_dummy = sam_mask_prompt
@@ -1075,12 +1075,15 @@ class SAM2Base(torch.nn.Module):
                 input_names=["curr", "memory_1", "memory_2", "curr_pos", "memory_pos_1", "memory_pos_2", "attention_mask_1", "attention_mask_2"],
                 output_names=["pix_feat"],
                 dynamic_axes={
-                    'memory_1': {0: 'n_1'},
-                    'memory_2': {0: 'n_2'},
-                    'memory_pos_1': {0: 'n_1'},
-                    'memory_pos_2': {0: 'n_2'},
-                    'attention_mask_1': {0: 'n_1'},
-                    'attention_mask_2': {0: 'n_2'}
+                    'curr': {1: 'b'},
+                    'memory_1': {0: 'n_1', 1: 'b'},
+                    'memory_2': {0: 'n_2', 1: 'b'},
+                    'curr_pos': {1: 'b'},
+                    'memory_pos_1': {0: 'n_1', 1: 'b'},
+                    'memory_pos_2': {0: 'n_2', 1: 'b'},
+                    'attention_mask_1': {0: 'n_1', 1: 'b'},
+                    'attention_mask_2': {0: 'n_2', 1: 'b'},
+                    'pix_feat': {1: 'b'}
                 },
                 verbose=False, opset_version=17
             )
