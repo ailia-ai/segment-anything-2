@@ -535,7 +535,7 @@ class SAM2ImagePredictor:
         if concat_points is None:
             raise ("concat points must be exists") # Noneの場合はtensorサイズが0のテンソルを返さないといけないためwhereで組めない
         if mask_input is None:
-            mask_input_dummy = torch.Tensor(np.zeros((1, self.model.image_size // 4, self.model.image_size // 4)))
+            mask_input_dummy = torch.Tensor(np.zeros((1, 1, self.model.image_size // 4, self.model.image_size // 4)))
             masks_enable = torch.tensor([0], dtype=torch.int) # boolだとonnxへのエクスポートのwhereでエラーになる
         else:
             mask_input_dummy = mask_input
@@ -551,7 +551,7 @@ class SAM2ImagePredictor:
                 dynamic_axes={
                     'coords': {0: 'b', 1: 'n'},
                     'labels': {0: 'b', 1: 'n'},
-                    'masks': {0: 'b', 1: 'h', 2: 'w'},
+                    'masks': {0: 'b', 1: 'c', 2: 'h', 3: 'w'},
                 },
                 verbose=False, opset_version=17
             )
