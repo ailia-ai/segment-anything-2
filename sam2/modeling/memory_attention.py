@@ -178,8 +178,10 @@ class MemoryAttention(nn.Module):
             memory_2 = memory_2.transpose(0, 1)
             memory_pos_1 = memory_pos_1.transpose(0, 1)
             memory_pos_2 = memory_pos_2.transpose(0, 1)
-            attention_mask_1 = attention_mask_1.transpose(0, 1)
-            attention_mask_2 = attention_mask_2.transpose(0, 1)
+            if attention_mask_1 is not None:
+                attention_mask_1 = attention_mask_1.transpose(0, 1)
+            if attention_mask_2 is not None:
+                attention_mask_2 = attention_mask_2.transpose(0, 1)
 
         for layer in self.layers:
             output = layer(

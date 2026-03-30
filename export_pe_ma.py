@@ -100,10 +100,8 @@ if args.component in ("both", "memory_attention"):
         image_size=image_size,
     )
 
-    # SAM2.1 has attention_mask parameters
-    has_attention_mask = 'attention_mask_1' in [
-        p.name for p in __import__('inspect').signature(predictor.memory_attention.forward).parameters.values()
-    ]
+    # SAM2.1 has attention_mask parameters, SAM2 does not
+    has_attention_mask = (version == "2.1")
 
     if has_attention_mask:
         attention_mask_1 = torch.ones(n_1, B, dtype=torch.bool)
@@ -124,8 +122,11 @@ if args.component in ("both", "memory_attention"):
         # SAM2.1 uses .onnx extension (not .opt.onnx)
         output_path = f'model/memory_attention_{model_id}.onnx'
     else:
-        export_args = (curr, memory_1, memory_2, curr_pos, memory_pos_1, memory_pos_2)
-        input_names = ["curr", "memory_1", "memory_2", "curr_pos", "memory_pos_1", "memory_pos_2"]
+        # SAM2: pass dummy all-True attention masks as constants (not as dynamic inputs)
+        attention_mask_1 = torch.ones(n_1, B, dtype=torch.bool)
+        attention_mask_2 = torch.ones(n_2, B, dtype=torch.bool)
+        export_args = (curr, memory_1, memory_2, curr_pos, memory_pos_1, memory_pos_2, attention_mask_1, attention_mask_2)
+        input_names = ["curr", "memory_1", "memory_2", "curr_pos", "memory_pos_1", "memory_pos_2", "attention_mask_1", "attention_mask_2"]
         dynamic_axes = {
             'curr': {1: 'b'},
             'memory_1': {0: 'n_1', 1: 'b'},
@@ -133,6 +134,8 @@ if args.component in ("both", "memory_attention"):
             'curr_pos': {1: 'b'},
             'memory_pos_1': {0: 'n_1', 1: 'b'},
             'memory_pos_2': {0: 'n_2', 1: 'b'},
+            'attention_mask_1': {0: 'n_1', 1: 'b'},
+            'attention_mask_2': {0: 'n_2', 1: 'b'},
             'pix_feat': {1: 'b'}
         }
         output_path = f'model/memory_attention_{model_id}.opt.onnx'
